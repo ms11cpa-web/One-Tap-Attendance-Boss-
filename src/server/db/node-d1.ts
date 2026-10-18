@@ -162,6 +162,16 @@ export async function getOrCreateNodeD1Database(): Promise<NodeD1Database> {
     db.exec(migrationSql);
   }
 
+  // Apply the optional account-security migration only once for local development.
+  const colNames = db.exec('PRAGMA table_info(sessions)');
+  const hasLastActivity = colNames[0]?.values.some(v => v[1] === 'last_activity_at');
+  if (!hasLastActivity) {
+    const securityMigration = path.resolve('migrations/0002_account_security.sql');
+    if (fs.existsSync(securityMigration)) {
+      db.exec(fs.readFileSync(securityMigration, 'utf8'));
+    }
+  }
+
   // Seed default data if users table is empty
   await seedInitialData(nodeDb);
 

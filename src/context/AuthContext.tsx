@@ -6,7 +6,7 @@ interface AuthContextType {
   user: User | null;
   settings: OfficeSettings | null;
   loading: boolean;
-  login: (employeeId: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  login: (employeeId: string, password: string, rememberDevice: boolean) => Promise<{ success: boolean; error?: string }>; 
   logout: () => Promise<void>;
   refreshMe: () => Promise<void>;
 }
@@ -33,24 +33,39 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   useEffect(() => {
+    setStoredToken(null);
     refreshMe();
   }, [refreshMe]);
 
-  const login = async (employeeId: string, password: string) => {
+  // Real user interaction extends a remembered device. No passive polling.
+  useEffect(() => {
+    if (!user) return;
+    let lastActivity = 0;
+    const onActivity = () => {
+      if (document.visibilityState !== 'visible' || Date.now() - lastActivity < 30 * 60 * 1000) return;
+      lastActivity = Date.now();
+      apiRequest('/api/auth/activity', { method: 'POST', body: '{}' }).catch(() => {});
+    };
+    document.addEventListener('pointerdown', onActivity, { passive: true });
+    document.addEventListener('keydown', onActivity);
+    return () => {
+      document.removeEventListener('pointerdown', onActivity);
+      document.removeEventListener('keydown', onActivity);
+    };
+  }, [user]);
+
+  const login = async (employeeId: string, password: string, rememberDevice: boolean) => {
     try {
       const res = await apiRequest<{
         success: boolean;
         user: User;
-        token: string;
         settings?: OfficeSettings;
       }>('/api/auth/login', {
         method: 'POST',
-        body: JSON.stringify({ employee_id: employeeId, password }),
+        body: JSON.stringify({ employee_id: employeeId, password, remember_device: rememberDevice }),
       });
 
-      if (res.token) {
-        setStoredToken(res.token);
-      }
+      setStoredToken(null);
       if (res.user) {
         setUser(res.user);
       }

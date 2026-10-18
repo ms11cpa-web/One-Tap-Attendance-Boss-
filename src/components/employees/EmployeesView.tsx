@@ -33,6 +33,9 @@ export const EmployeesView: React.FC = () => {
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<User | null>(null);
   const [resetPwdEmployee, setResetPwdEmployee] = useState<User | null>(null);
+  const [deletingEmployee, setDeletingEmployee] = useState<User | null>(null);
+  const [deleteConfirmation, setDeleteConfirmation] = useState('');
+  const [deleteAdminPassword, setDeleteAdminPassword] = useState('');
 
   // Add form fields
   const [empId, setEmpId] = useState('');
@@ -177,6 +180,16 @@ export const EmployeesView: React.FC = () => {
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const handleDeleteEmployee = async (e: React.FormEvent) => {
+    e.preventDefault(); if (!deletingEmployee) return;
+    setFormError(''); setSubmitting(true);
+    try {
+      await apiRequest(`/api/employees/${deletingEmployee.id}`, { method: 'DELETE', body: JSON.stringify({ confirm_employee_id: deleteConfirmation, current_password: deleteAdminPassword }) });
+      setDeletingEmployee(null); setDeleteConfirmation('');setDeleteAdminPassword(''); await fetchEmployees();
+    } catch (e) { setFormError(e instanceof Error ? e.message : 'Deletion failed'); }
+    finally { setSubmitting(false); }
   };
 
   const getRoleBadge = (r: UserRole) => {
@@ -352,6 +365,7 @@ export const EmployeesView: React.FC = () => {
                           >
                             <Edit2 className="w-3.5 h-3.5" />
                           </button>
+                          {isSuperAdmin && emp.role === 'employee' && <button onClick={() => { setDeletingEmployee(emp);setDeleteConfirmation('');setDeleteAdminPassword('');setFormError(''); }} className="p-1.5 rounded-lg text-rose-600 hover:bg-rose-50" title="Permanently delete demo employee"><Trash2 className="w-3.5 h-3.5"/></button>}
                           <button
                             onClick={() => setResetPwdEmployee(emp)}
                             className="p-1.5 rounded-lg text-slate-600 hover:bg-slate-100 transition cursor-pointer"
@@ -632,6 +646,18 @@ export const EmployeesView: React.FC = () => {
           </div>
         </div>
       )}
+
+      {deletingEmployee && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 p-4">
+        <form onSubmit={handleDeleteEmployee} className="w-full max-w-md rounded-3xl bg-white p-6 space-y-3">
+          <h3 className="font-bold text-rose-700 flex gap-2 items-center"><Trash2 className="w-5 h-5"/> Permanently delete employee?</h3>
+          <p className="text-sm text-slate-700">{deletingEmployee.name} ({deletingEmployee.employee_id})</p>
+          <p className="text-xs text-slate-600">Allowed for ordinary employees only when there are no attendance, leave, remote-work, correction or dependent business records. Otherwise use Inactive. This action cannot be undone.</p>
+          {formError && <p role="alert" className="bg-rose-50 text-rose-700 text-xs p-2 rounded-lg">{formError}</p>}
+          <label className="text-xs font-semibold">Type {deletingEmployee.employee_id} to confirm<input value={deleteConfirmation} onChange={e=>setDeleteConfirmation(e.target.value.toUpperCase())} className="block mt-1 w-full rounded-xl border border-slate-300 p-2.5 font-mono" /></label>
+          <label className="text-xs font-semibold">Your Super Admin password<input type="password" autoComplete="current-password" required value={deleteAdminPassword} onChange={e=>setDeleteAdminPassword(e.target.value)} className="block mt-1 w-full rounded-xl border border-slate-300 p-2.5" /></label>
+          <div className="flex gap-2 justify-end"><button type="button" onClick={()=>{setDeletingEmployee(null);setFormError('');}} className="px-4 py-2 text-xs">Cancel</button><button type="submit" disabled={submitting || !deleteAdminPassword || deleteConfirmation !== deletingEmployee.employee_id} className="bg-rose-700 disabled:opacity-40 text-white text-xs font-semibold rounded-xl px-4 py-2">{submitting?'Deleting…':'Delete permanently'}</button></div>
+        </form>
+      </div>}
 
       {/* Password Reset Modal */}
       {resetPwdEmployee && (

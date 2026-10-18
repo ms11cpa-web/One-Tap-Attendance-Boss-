@@ -3,12 +3,18 @@ import { useAuth } from '../../context/AuthContext';
 import { PWAInstallButton } from '../pwa/PWAInstallButton';
 import { Lock, User, AlertCircle, ArrowRight } from 'lucide-react';
 import { BootstrapView } from './BootstrapView';
+import { apiRequest } from '../../api/client';
 
 export const LoginView: React.FC = () => {
   const { login } = useAuth();
   const [employeeId, setEmployeeId] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [rememberDevice, setRememberDevice] = useState(true);
+  const [recoveryMode, setRecoveryMode] = useState(false);
+  const [recoveryCode, setRecoveryCode] = useState('');
+  const [recoveryPassword, setRecoveryPassword] = useState('');
+  const [recoverySuccess, setRecoverySuccess] = useState('');
   const [error, setError] = useState('');
   const [setupState, setSetupState] = useState<'loading'|'migrate'|'bootstrap'|'login'>('loading');
   useEffect(() => {
@@ -27,7 +33,7 @@ export const LoginView: React.FC = () => {
     setLoading(true);
 
     try {
-      const res = await login(employeeId, password);
+      const res = await login(employeeId, password, rememberDevice);
       if (!res.success) {
         setError(res.error || 'Invalid credentials');
         setLoading(false);
@@ -36,6 +42,15 @@ export const LoginView: React.FC = () => {
       setError(err instanceof Error ? err.message : 'Sign-in failed. Please retry.');
       setLoading(false);
     }
+  };
+
+  const submitRecovery = async (event: React.FormEvent) => {
+    event.preventDefault(); setLoading(true); setError('');
+    try {
+      const res = await apiRequest<{ message: string }>('/api/auth/recovery/reset', { method: 'POST', body: JSON.stringify({ employee_id: employeeId, recovery_code: recoveryCode, new_password: recoveryPassword }) });
+      setRecoverySuccess(res.message); setRecoveryPassword(''); setRecoveryCode(''); setRecoveryMode(false);
+    } catch (e) { setError(e instanceof Error ? e.message : 'Recovery failed'); }
+    finally { setLoading(false); }
   };
 
   if (setupState === 'loading') return <div className="min-h-screen bg-slate-950 text-teal-300 flex items-center justify-center">Checking database…</div>;
@@ -85,7 +100,8 @@ export const LoginView: React.FC = () => {
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          {recoverySuccess && <p className="text-emerald-300 text-xs mb-3">{recoverySuccess}</p>}
+          <form onSubmit={recoveryMode ? submitRecovery : handleSubmit} className="space-y-4">
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1.5">
                 Employee ID
@@ -103,7 +119,7 @@ export const LoginView: React.FC = () => {
               </div>
             </div>
 
-            <div>
+            {!recoveryMode && <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1.5">
                 Password
               </label>
@@ -118,16 +134,23 @@ export const LoginView: React.FC = () => {
                 />
                 <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
               </div>
-            </div>
+            </div>}
+
+            {recoveryMode && <>
+              <label className="block text-xs text-slate-300">One-time admin recovery code<input required value={recoveryCode} onChange={e=>setRecoveryCode(e.target.value)} className="mt-1 w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2.5 text-white" /></label>
+              <label className="block text-xs text-slate-300">New password (12+ characters)<input required type="password" minLength={12} autoComplete="new-password" value={recoveryPassword} onChange={e=>setRecoveryPassword(e.target.value)} className="mt-1 w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2.5 text-white" /></label>
+            </>}
+            {!recoveryMode && <label className="flex gap-2 items-center text-xs text-slate-300 cursor-pointer"><input type="checkbox" checked={rememberDevice} onChange={e=>setRememberDevice(e.target.checked)} /> Remember this device (logout after 20 days of inactivity)</label>}
 
             <button
               type="submit"
               disabled={loading}
               className="w-full py-3 rounded-2xl bg-gradient-to-r from-teal-500 to-emerald-600 hover:from-teal-400 hover:to-emerald-500 text-slate-950 font-black text-xs uppercase tracking-wider shadow-lg shadow-teal-500/20 transition cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50 mt-2"
             >
-              <span>{loading ? 'Authenticating...' : 'Sign In to Boss'}</span>
+              <span>{loading ? 'Working...' : recoveryMode ? 'Reset Admin Password' : 'Sign In to Boss'}</span>
               <ArrowRight className="w-4 h-4" />
             </button>
+            <button type="button" onClick={()=>{setRecoveryMode(v=>!v);setError('');setRecoverySuccess('');}} className="text-teal-300 text-xs hover:underline block mx-auto">{recoveryMode ? 'Back to login' : 'Forgot admin password? Use recovery code'}</button>
           </form>
 
         </div>

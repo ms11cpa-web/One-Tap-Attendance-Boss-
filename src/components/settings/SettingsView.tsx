@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { AccountSecurity } from './AccountSecurity';
 import { useAuth } from '../../context/AuthContext';
 import { apiRequest } from '../../api/client';
 import { OfficeSettings, Holiday } from '../../types';
@@ -175,6 +176,8 @@ export const SettingsView: React.FC = () => {
           Super Admin configuration for GPS radius, working schedules, grace time, and weekly holidays.
         </p>
       </div>
+
+      {(user?.role === 'super_admin' || user?.role === 'hr_admin') && <AccountSecurity />}
 
       {statusMsg && (
         <div

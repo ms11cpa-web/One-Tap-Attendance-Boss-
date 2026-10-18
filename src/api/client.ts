@@ -10,29 +10,10 @@ export class ApiError extends Error {
   }
 }
 
-export function getStoredToken(): string | null {
-  if (typeof window !== 'undefined' && window.localStorage) {
-    try {
-      return localStorage.getItem('boss_token');
-    } catch {
-      return null;
-    }
-  }
-  return null;
-}
-
-export function setStoredToken(token: string | null): void {
-  if (typeof window !== 'undefined' && window.localStorage) {
-    try {
-      if (token) {
-        localStorage.setItem('boss_token', token);
-      } else {
-        localStorage.removeItem('boss_token');
-      }
-    } catch {
-      // ignore
-    }
-  }
+// Legacy bearer tokens are removed: Boss now relies on HttpOnly cookies.
+export function getStoredToken(): null { return null; }
+export function setStoredToken(_token: string | null): void {
+  try { if (typeof localStorage !== 'undefined') localStorage.removeItem('boss_token'); } catch { /* no storage access */ }
 }
 
 export async function apiRequest<T = unknown>(
@@ -42,12 +23,6 @@ export async function apiRequest<T = unknown>(
   const headers = new Headers(options.headers || {});
   if (!headers.has('Content-Type') && !(options.body instanceof FormData)) {
     headers.set('Content-Type', 'application/json');
-  }
-
-  // Include Bearer token from localStorage for iframe & cross-origin compatibility
-  const token = getStoredToken();
-  if (token && !headers.has('Authorization')) {
-    headers.set('Authorization', `Bearer ${token}`);
   }
 
   const response = await fetch(endpoint, {
@@ -79,10 +54,6 @@ export async function downloadExcelReport(params: Record<string, string>): Promi
   const url = `/api/reports/export-xlsx?${query}`;
 
   const headers = new Headers();
-  const token = getStoredToken();
-  if (token) {
-    headers.set('Authorization', `Bearer ${token}`);
-  }
 
   const response = await fetch(url, {
     method: 'GET',

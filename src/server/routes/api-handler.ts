@@ -1,5 +1,6 @@
 import { D1DatabaseLike } from '../db/types.ts';
 import { hashPassword, verifyPassword, generateSessionToken } from '../auth/crypto.ts';
+import { generateRecoveryCodes, hashRecoveryCode, normalizeRecoveryCode } from '../auth/recovery.ts';
 import {
   getDhakaNow,
   getDhakaDateString,
@@ -12,6 +13,9 @@ import {
 } from '../utils/time.ts';
 import { verifyLocationGeofence } from '../utils/geo.ts';
 import { generateBossExcelWorkbook } from '../reports/excel.ts';
+
+export const REMEMBER_IDLE_MS = 20 * 24 * 60 * 60 * 1000;
+export const SHORT_SESSION_MS = 12 * 60 * 60 * 1000;
 
 export interface RequestContext {
   token?: string;
@@ -38,15 +42,16 @@ export async function getUserFromSession(
 ): Promise<UserSession | null> {
   if (!token) return null;
 
+  const storedTokenHash = await hashRecoveryCode(token);
   const sessionRow = await db
     .prepare(
       `SELECT s.user_id, s.expires_at, u.id, u.employee_id, u.name, u.email,
               u.phone, u.role, u.team, u.designation, u.manager_id, u.status, u.joining_date
        FROM sessions s
        JOIN users u ON s.user_id = u.id
-       WHERE s.id = ? AND s.expires_at > ?`
+       WHERE (s.id = ? OR s.id = ?) AND s.expires_at > ?`
     )
-    .bind(token, Date.now())
+    .bind(storedTokenHash, token, Date.now())
     .first<Record<string, unknown>>();
 
   if (!sessionRow || sessionRow.status !== 'active') {
@@ -140,12 +145,14 @@ export async function handleApiRequest(
       return { status: 401, data: { error: 'Invalid Employee ID or password.' } };
     }
 
+    const rememberDevice = body.remember_device === true;
     const token = generateSessionToken();
-    const expiresAt = Date.now() + 30 * 24 * 60 * 60 * 1000; // 30 days
-
+    const now = Date.now();
+    const expiresAt = now + (rememberDevice ? REMEMBER_IDLE_MS : SHORT_SESSION_MS);
+    await db.prepare('DELETE FROM sessions WHERE expires_at <= ?').bind(now).run();
     await db
-      .prepare('INSERT INTO sessions (id, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)')
-      .bind(token, userRow.id, expiresAt, Date.now())
+      .prepare('INSERT INTO sessions (id, user_id, expires_at, created_at, last_activity_at, remember_device) VALUES (?, ?, ?, ?, ?, ?)')
+      .bind(await hashRecoveryCode(token), userRow.id, expiresAt, now, now, rememberDevice ? 1 : 0)
       .run();
 
     await logAudit(
@@ -175,11 +182,10 @@ export async function handleApiRequest(
     return {
       status: 200,
       headers: {
-        'Set-Cookie': `boss_session=${token}; Path=/; HttpOnly; SameSite=None; Secure; Partitioned; Max-Age=${30 * 24 * 3600}`,
+        'Set-Cookie': `boss_session=${token}; Path=/; HttpOnly; SameSite=Lax; Secure; Max-Age=${Math.floor((expiresAt - now) / 1000)}`,
       },
       data: {
         success: true,
-        token,
         settings,
         user: {
           id: userRow.id,
@@ -198,12 +204,13 @@ export async function handleApiRequest(
 
   if (urlPath === '/api/auth/logout' && normalizedMethod === 'POST') {
     if (context.token) {
-      await db.prepare('DELETE FROM sessions WHERE id = ?').bind(context.token).run();
+      await db.prepare('DELETE FROM sessions WHERE id = ? OR id = ?')
+        .bind(await hashRecoveryCode(context.token), context.token).run();
     }
     return {
       status: 200,
       headers: {
-        'Set-Cookie': 'boss_session=; Path=/; HttpOnly; SameSite=None; Secure; Partitioned; Max-Age=0',
+        'Set-Cookie': 'boss_session=; Path=/; HttpOnly; SameSite=Lax; Secure; Max-Age=0',
       },
       data: { success: true },
     };
@@ -248,14 +255,92 @@ export async function handleApiRequest(
       .bind(newHash, Date.now(), user.id)
       .run();
 
+    await db.prepare('DELETE FROM sessions WHERE user_id = ?').bind(user.id).run();
     await logAudit(db, user, 'PASSWORD_CHANGE', 'user', user.id, { employee_id: user.employee_id }, context.ip);
 
     return { status: 200, data: { success: true, message: 'Password updated successfully.' } };
   }
 
+  // Admin password recovery uses separately issued, single-use offline codes.
+  // Unknown accounts and incorrect codes receive the same response.
+  if (urlPath === '/api/auth/recovery/reset' && normalizedMethod === 'POST') {
+    const employeeId = String(body.employee_id || '').trim().toUpperCase();
+    const code = normalizeRecoveryCode(String(body.recovery_code || ''));
+    const newPassword = String(body.new_password || '');
+    if (!employeeId || code.length < 20 || newPassword.length < 12 || newPassword.length > 256) {
+      return { status: 400, data: { error: 'Enter your admin ID, recovery code and a new password of at least 12 characters.' } };
+    }
+    const target = await db.prepare(`SELECT id, role, status FROM users WHERE UPPER(employee_id) = ?`)
+      .bind(employeeId).first<{ id: string; role: string; status: string }>();
+    const invalid = { status: 400, data: { error: 'Recovery failed. Check the code or contact another Super Admin.' } };
+    if (!target || target.status !== 'active' || !['super_admin', 'hr_admin'].includes(target.role)) return invalid;
+
+    const now = Date.now();
+    const attempt = await db.prepare('SELECT attempts, locked_until FROM admin_recovery_attempts WHERE user_id = ?')
+      .bind(target.id).first<{attempts:number;locked_until:number}>();
+    if (attempt && Number(attempt.locked_until) > now) {
+      return { status: 429, data: { error: 'Too many attempts. Wait 15 minutes before trying again.' } };
+    }
+    const codeHash = await hashRecoveryCode(code);
+    const found = await db.prepare('SELECT id FROM admin_recovery_codes WHERE user_id = ? AND code_hash = ? AND used_at IS NULL')
+      .bind(target.id, codeHash).first<{ id: string }>();
+    if (!found) {
+      const next = (attempt && Number(attempt.locked_until) > 0 && Number(attempt.locked_until) <= now)
+        ? 1 : (Number(attempt?.attempts || 0) + 1);
+      await db.prepare(`INSERT INTO admin_recovery_attempts (user_id, attempts, locked_until) VALUES (?, ?, ?)
+        ON CONFLICT(user_id) DO UPDATE SET attempts = excluded.attempts, locked_until = excluded.locked_until`)
+        .bind(target.id, next, next >= 5 ? now + 15 * 60 * 1000 : 0).run();
+      return invalid;
+    }
+    const passwordHash = await hashPassword(newPassword);
+    // Conditional code consumption prevents two concurrent requests using the same code.
+    const updated = await db.prepare(`UPDATE admin_recovery_codes SET used_at = ? WHERE id = ? AND used_at IS NULL`)
+      .bind(now, found.id).run();
+    if (updated.meta?.changes !== undefined && Number(updated.meta.changes) !== 1) return invalid;
+    await db.prepare('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?')
+      .bind(passwordHash, now, target.id).run();
+    await db.prepare('DELETE FROM sessions WHERE user_id = ?').bind(target.id).run();
+    await db.prepare('DELETE FROM admin_recovery_attempts WHERE user_id = ?').bind(target.id).run();
+    await logAudit(db, null, 'ADMIN_RECOVERY_RESET', 'user', target.id, { employee_id: employeeId }, context.ip);
+    return { status: 200, data: { success: true, message: 'Password updated. Sign in with your new password.' } };
+  }
+
   // From here down, require valid user session
   if (!user) {
     return { status: 401, data: { error: 'Authentication required' } };
+  }
+
+  if (urlPath === '/api/auth/activity' && normalizedMethod === 'POST') {
+    return { status: 200, data: { success: true } };
+  }
+
+  if (urlPath === '/api/auth/recovery/status' && normalizedMethod === 'GET') {
+    if (!['super_admin', 'hr_admin'].includes(user.role)) return { status: 403, data: { error: 'Only administrators have recovery codes.' } };
+    const count = await db.prepare('SELECT COUNT(*) AS count FROM admin_recovery_codes WHERE user_id = ? AND used_at IS NULL')
+      .bind(user.id).first<{ count: number }>();
+    return { status: 200, data: { remaining: Number(count?.count || 0) } };
+  }
+
+  if (urlPath === '/api/auth/recovery/generate' && normalizedMethod === 'POST') {
+    if (!['super_admin', 'hr_admin'].includes(user.role)) return { status: 403, data: { error: 'Only administrators have recovery codes.' } };
+    const password = String(body.current_password || '');
+    const row = await db.prepare('SELECT password_hash FROM users WHERE id = ?').bind(user.id).first<{ password_hash: string }>();
+    if (!row || !await verifyPassword(password, row.password_hash)) return { status: 403, data: { error: 'Current password is incorrect.' } };
+    const codes = generateRecoveryCodes(10);
+    const statements = [db.prepare('DELETE FROM admin_recovery_codes WHERE user_id = ?').bind(user.id)];
+    for (const code of codes) {
+      statements.push(db.prepare('INSERT INTO admin_recovery_codes (id, user_id, code_hash, created_at) VALUES (?, ?, ?, ?)')
+        .bind('rec_' + crypto.randomUUID(), user.id, await hashRecoveryCode(normalizeRecoveryCode(code)), Date.now()));
+    }
+    await db.batch(statements);
+    await logAudit(db, user, 'RECOVERY_CODES_REGENERATED', 'user', user.id, { count: codes.length }, context.ip);
+    return { status: 200, data: { codes, message: 'Store these codes safely. They will not be displayed again.' } };
+  }
+
+  if (urlPath === '/api/auth/logout-all' && normalizedMethod === 'POST') {
+    await db.prepare('DELETE FROM sessions WHERE user_id = ?').bind(user.id).run();
+    await logAudit(db, user, 'LOGOUT_ALL_DEVICES', 'user', user.id, {}, context.ip);
+    return { status: 200, headers: { 'Set-Cookie': 'boss_session=; Path=/; HttpOnly; SameSite=Lax; Secure; Max-Age=0' }, data: { success: true } };
   }
 
   // -------------------------------------------------------------
@@ -1407,6 +1492,52 @@ export async function handleApiRequest(
     return { status: 200, data: { success: true, message: `Employee ${name} (${employeeId}) created successfully.` } };
   }
 
+  // Permanent deletion is only available for ordinary employees with no
+  // business records. The D1 database preserves historical records otherwise.
+  if (urlPath.startsWith('/api/employees/') && normalizedMethod === 'DELETE') {
+    if (user.role !== 'super_admin') return { status: 403, data: { error: 'Only the Super Admin can delete employees.' } };
+    const targetId = urlPath.slice('/api/employees/'.length);
+    const target = await db.prepare('SELECT id, employee_id, name, role FROM users WHERE id = ?')
+      .bind(targetId).first<{ id:string; employee_id:string; name:string; role:string }>();
+    if (!target) return { status: 404, data: { error: 'Employee not found.' } };
+    if (target.role !== 'employee' || target.id === user.id) {
+      return { status: 403, data: { error: 'Administrator/manager accounts cannot be permanently deleted here. Deactivate them or manage roles instead.' } };
+    }
+    const adminPassword = String(body.current_password || '');
+    const adminHash = await db.prepare('SELECT password_hash FROM users WHERE id = ?').bind(user.id).first<{password_hash:string}>();
+    if (!adminHash || !await verifyPassword(adminPassword, adminHash.password_hash)) {
+      return { status: 403, data: { error: 'Confirm your Super Admin password before deleting an employee.' } };
+    }
+    if (String(body.confirm_employee_id || '').trim().toUpperCase() !== target.employee_id.toUpperCase()) {
+      return { status: 400, data: { error: 'Type the exact Employee ID to confirm deletion.' } };
+    }
+    const blockers = await db.prepare(`SELECT
+      (SELECT COUNT(*) FROM attendance_records WHERE user_id = ?) AS attendance,
+      (SELECT COUNT(*) FROM leave_requests WHERE user_id = ?) AS leaves,
+      (SELECT COUNT(*) FROM remote_requests WHERE user_id = ?) AS remote,
+      (SELECT COUNT(*) FROM attendance_corrections WHERE user_id = ?) AS corrections,
+      (SELECT COUNT(*) FROM users WHERE manager_id = ?) AS reports,
+      (SELECT COUNT(*) FROM leave_balances WHERE user_id = ? AND (used_days > 0 OR pending_days > 0)) AS leave_usage`)
+      .bind(target.id, target.id, target.id, target.id, target.id, target.id).first<Record<string, number>>();
+    if (blockers && Object.values(blockers).some(x => Number(x) > 0)) {
+      return { status: 409, data: { error: 'Employee has attendance, leave, correction, remote-work, balance usage or reporting records. Deactivate instead to preserve history.', blockers } };
+    }
+    // Recheck every blocker in the DELETE itself to avoid a race with a new punch/request.
+    const result = await db.prepare(`DELETE FROM users WHERE id = ? AND role = 'employee'
+      AND NOT EXISTS (SELECT 1 FROM attendance_records WHERE user_id = ?)
+      AND NOT EXISTS (SELECT 1 FROM leave_requests WHERE user_id = ?)
+      AND NOT EXISTS (SELECT 1 FROM remote_requests WHERE user_id = ?)
+      AND NOT EXISTS (SELECT 1 FROM attendance_corrections WHERE user_id = ?)
+      AND NOT EXISTS (SELECT 1 FROM users WHERE manager_id = ?)
+      AND NOT EXISTS (SELECT 1 FROM leave_balances WHERE user_id = ? AND (used_days > 0 OR pending_days > 0))`)
+      .bind(target.id, target.id, target.id, target.id, target.id, target.id, target.id).run();
+    if (result.meta?.changes !== undefined && Number(result.meta.changes) !== 1) {
+      return { status: 409, data: { error: 'Employee data changed. Please refresh and try again.' } };
+    }
+    await logAudit(db, user, 'DELETE_EMPLOYEE', 'user', target.id, { deleted_employee_id: target.employee_id, deleted_name: target.name }, context.ip);
+    return { status: 200, data: { success: true, message: `Demo employee ${target.employee_id} permanently deleted.` } };
+  }
+
   if (urlPath.startsWith('/api/employees/') && normalizedMethod === 'PUT') {
     if (user.role !== 'super_admin' && user.role !== 'hr_admin') {
       return { status: 403, data: { error: 'Unauthorized.' } };
@@ -1478,6 +1609,7 @@ export async function handleApiRequest(
       .bind(newHash, Date.now(), targetId)
       .run();
 
+    await db.prepare('DELETE FROM sessions WHERE user_id = ?').bind(targetId).run();
     await logAudit(db, user, 'ADMIN_RESET_PASSWORD', 'user', targetId, {}, context.ip);
 
     return { status: 200, data: { success: true, message: 'Employee password reset successfully.' } };

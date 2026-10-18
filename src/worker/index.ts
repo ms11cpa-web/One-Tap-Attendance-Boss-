@@ -1,4 +1,5 @@
-import { handleApiRequest } from '../server/routes/api-handler.ts';
+import { handleApiRequest, getUserFromSession, REMEMBER_IDLE_MS, SHORT_SESSION_MS } from '../server/routes/api-handler.ts';
+import { hashRecoveryCode } from '../server/auth/recovery.ts';
 import { D1DatabaseLike } from '../server/db/types.ts';
 import { handleBootstrapRequest } from './bootstrap.ts';
 
@@ -41,7 +42,15 @@ export default {
         request.headers.get('x-forwarded-for') ||
         '127.0.0.1';
 
-      let apiRes;
+      // Cookie auth is same-origin only for state-changing requests.
+      if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method.toUpperCase())) {
+        const origin = request.headers.get('Origin');
+        if (origin && origin !== url.origin) {
+          return Response.json({ error: 'Invalid request origin.' }, { status: 403 });
+        }
+      }
+
+      let apiRes: { status: number; data?: unknown; headers?: Record<string, string>; binary?: Uint8Array };
       try {
         // Public, one-time bootstrap routes must run before the authenticated
         // router, which queries the sessions table.
@@ -68,6 +77,24 @@ export default {
         apiRes = /no such table|has no column|database not initialized/i.test(message)
           ? { status: 503, data: { error: 'Database tables are not initialized. Apply D1 migrations to boss-production-db.' } }
           : { status: 500, data: { error: 'Server error. Contact the administrator; details are in Cloudflare Workers logs.' } };
+      }
+
+      // Refresh remembered-device expiration ONLY for genuine user activity.
+      // Passive GET/refresh requests never extend the 20-day inactivity period.
+      const activity = request.method.toUpperCase() === 'POST' || request.method.toUpperCase() === 'PUT' || request.method.toUpperCase() === 'DELETE';
+      if (activity && token && apiRes.status < 400 && !['/api/auth/login','/api/auth/logout','/api/auth/logout-all', '/api/auth/recovery/reset'].includes(url.pathname)) {
+        const activeUser = await getUserFromSession(env.DB, token);
+        if (activeUser) {
+          const hash = await hashRecoveryCode(token);
+          const session = await env.DB.prepare('SELECT remember_device FROM sessions WHERE id = ? OR id = ?').bind(hash, token).first<{remember_device:number}>();
+          if (session) {
+            const idleDuration = Number(session.remember_device) === 1 ? REMEMBER_IDLE_MS : SHORT_SESSION_MS;
+            const now = Date.now();
+            await env.DB.prepare('UPDATE sessions SET last_activity_at = ?, expires_at = ? WHERE id = ? OR id = ?')
+              .bind(now, now + idleDuration, hash, token).run();
+            apiRes.headers = { ...(apiRes.headers || {}), 'Set-Cookie': `boss_session=${token}; Path=/; HttpOnly; SameSite=Lax; Secure; Max-Age=${Math.floor(idleDuration / 1000)}` };
+          }
+        }
       }
 
       const headers = new Headers(apiRes.headers || {});

@@ -4,7 +4,8 @@ import cookieParser from 'cookie-parser';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { getOrCreateNodeD1Database } from './src/server/db/node-d1.ts';
-import { handleApiRequest } from './src/server/routes/api-handler.ts';
+import { handleApiRequest, getUserFromSession, REMEMBER_IDLE_MS, SHORT_SESSION_MS } from './src/server/routes/api-handler.ts';
+import { hashRecoveryCode } from './src/server/auth/recovery.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -40,6 +41,20 @@ async function startServer() {
         db
       );
 
+      const activeMethod = ['POST', 'PUT', 'DELETE'].includes(req.method.toUpperCase());
+      if (activeMethod && token && result.status < 400 && !['/api/auth/login','/api/auth/logout','/api/auth/logout-all','/api/auth/recovery/reset'].includes(req.path)) {
+        const sessionUser = await getUserFromSession(db, token);
+        if (sessionUser) {
+          const hash = await hashRecoveryCode(token);
+          const sr = await db.prepare('SELECT remember_device FROM sessions WHERE id = ? OR id = ?').bind(hash, token).first<{remember_device:number}>();
+          if (sr) {
+            const lifetime = Number(sr.remember_device) === 1 ? REMEMBER_IDLE_MS : SHORT_SESSION_MS;
+            const now = Date.now();
+            await db.prepare('UPDATE sessions SET last_activity_at = ?, expires_at = ? WHERE id = ? OR id = ?').bind(now, now + lifetime, hash, token).run();
+            result.headers = { ...(result.headers || {}), 'Set-Cookie': `boss_session=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${Math.floor(lifetime / 1000)}` };
+          }
+        }
+      }
       if (result.headers) {
         for (const [key, value] of Object.entries(result.headers)) {
           res.setHeader(key, value);
