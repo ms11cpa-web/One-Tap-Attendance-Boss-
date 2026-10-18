@@ -1,0 +1,21 @@
+name = "boss-workforce"
+main = "src/worker/index.ts"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+# Cloudflare D1 Database Binding
+[[d1_databases]]
+binding = "DB"
+database_name = "boss-production-db"
+database_id = "placeholder-replace-with-your-cloudflare-d1-id"
+migrations_dir = "migrations"
+
+# Serve Frontend static assets from Vite build output
+[assets]
+directory = "./dist"
+binding = "ASSETS"
+
+# Environment Variables
+[vars]
+APP_NAME = "Boss"
+TIMEZONE = "Asia/Dhaka"

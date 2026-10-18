@@ -1,0 +1,6 @@
+{
+  "name": "Boss",
+  "description": "Boss — Smart Workforce Management: Employee Attendance, Leave, Remote Work, GPS Geofencing, Holiday and Workforce Management System.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
