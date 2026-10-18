@@ -16,6 +16,7 @@ import {
   RefreshCw,
   X,
   AlertTriangle,
+  Trash2,
 } from 'lucide-react';
 
 export const EmployeesView: React.FC = () => {
