@@ -6,3 +6,6 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Local demo database must never be pushed to the public repository
+/data/*.sqlite

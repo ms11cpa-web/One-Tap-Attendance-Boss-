@@ -40,13 +40,13 @@ export const EmployeesView: React.FC = () => {
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [role, setRole] = useState<UserRole>('employee');
-  const [team, setTeam] = useState('Software Engineering');
-  const [designation, setDesignation] = useState('Staff Engineer');
-  const [joiningDate, setJoiningDate] = useState('2024-01-15');
-  const [password, setPassword] = useState('Password@123');
+  const [team, setTeam] = useState('General');
+  const [designation, setDesignation] = useState('Staff');
+  const [joiningDate, setJoiningDate] = useState(new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Dhaka', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()));
+  const [password, setPassword] = useState('');
 
   // Reset password field
-  const [newPassword, setNewPassword] = useState('Password@123');
+  const [newPassword, setNewPassword] = useState('');
 
   const [formError, setFormError] = useState('');
   const [formSuccess, setFormSuccess] = useState('');
@@ -107,6 +107,7 @@ export const EmployeesView: React.FC = () => {
         setName('');
         setEmail('');
         setPhone('');
+        setPassword('');
         setFormSuccess('');
       }, 1000);
       await fetchEmployees();
@@ -165,7 +166,8 @@ export const EmployeesView: React.FC = () => {
         body: JSON.stringify({ new_password: newPassword }),
       });
 
-      setFormSuccess(`Password updated to "${newPassword}".`);
+      setNewPassword('');
+      setFormSuccess('Password updated successfully.');
       setTimeout(() => {
         setResetPwdEmployee(null);
         setFormSuccess('');
@@ -493,6 +495,8 @@ export const EmployeesView: React.FC = () => {
                   type="text"
                   required
                   value={password}
+                  minLength={12}
+                  required
                   onChange={e => setPassword(e.target.value)}
                   className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:border-teal-500 font-mono"
                 />
@@ -655,6 +659,8 @@ export const EmployeesView: React.FC = () => {
                   type="text"
                   required
                   value={newPassword}
+                  minLength={12}
+                  required
                   onChange={e => setNewPassword(e.target.value)}
                   className="w-full px-3 py-2 text-xs font-mono rounded-xl border border-slate-200 focus:outline-none focus:border-teal-500"
                 />

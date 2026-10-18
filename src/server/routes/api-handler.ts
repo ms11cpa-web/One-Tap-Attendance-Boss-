@@ -170,7 +170,7 @@ export async function handleApiRequest(
       context.ip
     );
 
-    const settings = await db.prepare('SELECT * FROM office_settings WHERE id = "default"').first();
+    const settings = await db.prepare(`SELECT * FROM office_settings WHERE id = 'default'`).first();
 
     return {
       status: 200,
@@ -214,7 +214,7 @@ export async function handleApiRequest(
       return { status: 401, data: { error: 'Unauthenticated' } };
     }
 
-    const settings = await db.prepare('SELECT * FROM office_settings WHERE id = "default"').first();
+    const settings = await db.prepare(`SELECT * FROM office_settings WHERE id = 'default'`).first();
 
     return {
       status: 200,
@@ -231,8 +231,8 @@ export async function handleApiRequest(
     const currentPassword = String(body.current_password || '');
     const newPassword = String(body.new_password || '');
 
-    if (!currentPassword || !newPassword || newPassword.length < 6) {
-      return { status: 400, data: { error: 'New password must be at least 6 characters long.' } };
+    if (!currentPassword || !newPassword || newPassword.length < 12) {
+      return { status: 400, data: { error: 'New password must be at least 12 characters long.' } };
     }
 
     const userRow = await db.prepare('SELECT password_hash FROM users WHERE id = ?').bind(user.id).first<{ password_hash: string }>();
@@ -265,7 +265,7 @@ export async function handleApiRequest(
   const dayOfWeek = getDhakaDayOfWeek(todayDateStr);
 
   if (urlPath === '/api/attendance/today' && normalizedMethod === 'GET') {
-    const settings = (await db.prepare('SELECT * FROM office_settings WHERE id = "default"').first<Record<string, unknown>>()) || {
+    const settings = (await db.prepare(`SELECT * FROM office_settings WHERE id = 'default'`).first<Record<string, unknown>>()) || {
       office_latitude: 23.7925,
       office_longitude: 90.4078,
       permitted_radius_meters: 300,
@@ -278,7 +278,7 @@ export async function handleApiRequest(
 
     // Check if user has approved remote work for today
     const remoteReq = await db
-      .prepare('SELECT id, status FROM remote_requests WHERE user_id = ? AND request_date = ? AND status = "approved"')
+      .prepare(`SELECT id, status FROM remote_requests WHERE user_id = ? AND request_date = ? AND status = 'approved'`)
       .bind(user.id, todayDateStr)
       .first();
 
@@ -323,7 +323,7 @@ export async function handleApiRequest(
 
   // PUNCH IN
   if (urlPath === '/api/attendance/punch-in' && normalizedMethod === 'POST') {
-    const settings = (await db.prepare('SELECT * FROM office_settings WHERE id = "default"').first<Record<string, unknown>>()) || {
+    const settings = (await db.prepare(`SELECT * FROM office_settings WHERE id = 'default'`).first<Record<string, unknown>>()) || {
       office_latitude: 23.7925,
       office_longitude: 90.4078,
       permitted_radius_meters: 300,
@@ -384,7 +384,7 @@ export async function handleApiRequest(
     } else {
       // Must have approved remote request
       const approvedRemote = await db
-        .prepare('SELECT id FROM remote_requests WHERE user_id = ? AND request_date = ? AND status = "approved"')
+        .prepare(`SELECT id FROM remote_requests WHERE user_id = ? AND request_date = ? AND status = 'approved'`)
         .bind(user.id, todayDateStr)
         .first();
 
@@ -477,7 +477,7 @@ export async function handleApiRequest(
 
   // PUNCH OUT
   if (urlPath === '/api/attendance/punch-out' && normalizedMethod === 'POST') {
-    const settings = (await db.prepare('SELECT * FROM office_settings WHERE id = "default"').first<Record<string, unknown>>()) || {
+    const settings = (await db.prepare(`SELECT * FROM office_settings WHERE id = 'default'`).first<Record<string, unknown>>()) || {
       office_latitude: 23.7925,
       office_longitude: 90.4078,
       permitted_radius_meters: 300,
@@ -677,7 +677,7 @@ export async function handleApiRequest(
     const lastDayOfMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
     const endDate = `${yearMonth}-${String(lastDayOfMonth).padStart(2, '0')}`;
 
-    const settings = (await db.prepare('SELECT weekly_holidays FROM office_settings WHERE id = "default"').first<Record<string, unknown>>()) || {
+    const settings = (await db.prepare(`SELECT weekly_holidays FROM office_settings WHERE id = 'default'`).first<Record<string, unknown>>()) || {
       weekly_holidays: '["Friday","Saturday"]',
     };
     const weeklyHolidays: string[] = JSON.parse(String(settings.weekly_holidays || '[]'));
@@ -695,7 +695,7 @@ export async function handleApiRequest(
         SELECT lr.*, lc.name as category_name, lc.color
         FROM leave_requests lr
         JOIN leave_categories lc ON lr.category_id = lc.id
-        WHERE lr.user_id = ? AND lr.status = "approved"
+        WHERE lr.user_id = ? AND lr.status = 'approved'
           AND ((lr.start_date <= ? AND lr.end_date >= ?) OR (lr.start_date >= ? AND lr.start_date <= ?))
       `)
       .bind(targetUserId, endDate, startDate, startDate, endDate)
@@ -834,7 +834,7 @@ export async function handleApiRequest(
     let companySummary = null;
     if (user.role !== 'employee') {
       const activeEmpCount = await db
-        .prepare('SELECT COUNT(*) as count FROM users WHERE status = "active"')
+        .prepare(`SELECT COUNT(*) as count FROM users WHERE status = 'active'`)
         .first<{ count: number }>();
 
       // Attendance today
@@ -850,14 +850,14 @@ export async function handleApiRequest(
 
       // Leaves today
       const onLeaveToday = await db
-        .prepare('SELECT COUNT(*) as count FROM leave_requests WHERE status = "approved" AND start_date <= ? AND end_date >= ?')
+        .prepare(`SELECT COUNT(*) as count FROM leave_requests WHERE status = 'approved' AND start_date <= ? AND end_date >= ?`)
         .bind(todayDateStr, todayDateStr)
         .first<{ count: number }>();
 
       // Pending Approvals
-      const pendingLeave = await db.prepare('SELECT COUNT(*) as count FROM leave_requests WHERE status = "pending"').first<{ count: number }>();
-      const pendingRemote = await db.prepare('SELECT COUNT(*) as count FROM remote_requests WHERE status = "pending"').first<{ count: number }>();
-      const pendingCorrections = await db.prepare('SELECT COUNT(*) as count FROM attendance_corrections WHERE status = "pending"').first<{ count: number }>();
+      const pendingLeave = await db.prepare(`SELECT COUNT(*) as count FROM leave_requests WHERE status = 'pending'`).first<{ count: number }>();
+      const pendingRemote = await db.prepare(`SELECT COUNT(*) as count FROM remote_requests WHERE status = 'pending'`).first<{ count: number }>();
+      const pendingCorrections = await db.prepare(`SELECT COUNT(*) as count FROM attendance_corrections WHERE status = 'pending'`).first<{ count: number }>();
 
       const totalActive = activeEmpCount ? activeEmpCount.count : 0;
       const presentCount = todayAtt.length;
@@ -933,7 +933,7 @@ export async function handleApiRequest(
 
     // Check duplicate
     const existing = await db
-      .prepare('SELECT id, status FROM remote_requests WHERE user_id = ? AND request_date = ? AND status IN ("pending", "approved")')
+      .prepare(`SELECT id, status FROM remote_requests WHERE user_id = ? AND request_date = ? AND status IN ('pending', 'approved')`)
       .bind(user.id, requestDate)
       .first();
 
@@ -944,7 +944,7 @@ export async function handleApiRequest(
     const reqId = 'rem_' + Math.random().toString(36).substring(2, 11);
     await db
       .prepare(
-        'INSERT INTO remote_requests (id, user_id, request_date, reason, status, created_at) VALUES (?, ?, ?, ?, "pending", ?)'
+        `INSERT INTO remote_requests (id, user_id, request_date, reason, status, created_at) VALUES (?, ?, ?, ?, 'pending', ?)`
       )
       .bind(reqId, user.id, requestDate, reason, Date.now())
       .run();
@@ -1081,7 +1081,7 @@ export async function handleApiRequest(
         `INSERT INTO leave_requests (
           id, user_id, category_id, start_date, end_date,
           is_half_day, half_day_type, days_count, reason, status, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, "pending", ?)`
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`
       )
       .bind(
         reqId,
@@ -1130,7 +1130,7 @@ export async function handleApiRequest(
 
     if (action === 'approved') {
       await db
-        .prepare('UPDATE leave_requests SET status = "approved", approved_by = ?, action_reason = ?, action_timestamp = ? WHERE id = ?')
+        .prepare(`UPDATE leave_requests SET status = 'approved', approved_by = ?, action_reason = ?, action_timestamp = ? WHERE id = ?`)
         .bind(user.name, actionReason, Date.now(), id)
         .run();
 
@@ -1141,7 +1141,7 @@ export async function handleApiRequest(
         .run();
     } else {
       await db
-        .prepare('UPDATE leave_requests SET status = "rejected", approved_by = ?, action_reason = ?, action_timestamp = ? WHERE id = ?')
+        .prepare(`UPDATE leave_requests SET status = 'rejected', approved_by = ?, action_reason = ?, action_timestamp = ? WHERE id = ?`)
         .bind(user.name, actionReason, Date.now(), id)
         .run();
 
@@ -1208,7 +1208,7 @@ export async function handleApiRequest(
           id, user_id, attendance_date, correction_type, original_in_time,
           original_out_time, requested_in_time, requested_out_time, explanation,
           status, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, "pending", ?)`
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`
       )
       .bind(
         corrId,
@@ -1285,12 +1285,12 @@ export async function handleApiRequest(
       }
 
       await db
-        .prepare('UPDATE attendance_corrections SET status = "approved", approved_by = ?, action_timestamp = ? WHERE id = ?')
+        .prepare(`UPDATE attendance_corrections SET status = 'approved', approved_by = ?, action_timestamp = ? WHERE id = ?`)
         .bind(user.name, Date.now(), id)
         .run();
     } else {
       await db
-        .prepare('UPDATE attendance_corrections SET status = "rejected", approved_by = ?, action_timestamp = ? WHERE id = ?')
+        .prepare(`UPDATE attendance_corrections SET status = 'rejected', approved_by = ?, action_timestamp = ? WHERE id = ?`)
         .bind(user.name, Date.now(), id)
         .run();
     }
@@ -1344,7 +1344,7 @@ export async function handleApiRequest(
     const designation = String(body.designation || 'Staff');
     const managerId = body.manager_id ? String(body.manager_id) : null;
     const joiningDate = String(body.joining_date || todayDateStr);
-    const password = String(body.password || 'Password@123');
+    const password = String(body.password || '');
 
     // Only Super Admin can assign super_admin or hr_admin roles
     if ((role === 'super_admin' || role === 'hr_admin') && user.role !== 'super_admin') {
@@ -1354,6 +1354,7 @@ export async function handleApiRequest(
     if (!employeeId || !name) {
       return { status: 400, data: { error: 'Employee ID and Name are required.' } };
     }
+    if (password.length < 12) return { status: 400, data: { error: 'Set a unique employee password of at least 12 characters.' } };
 
     // Check duplicate employee_id
     const existing = await db.prepare('SELECT id FROM users WHERE employee_id = ?').bind(employeeId).first();
@@ -1414,11 +1415,14 @@ export async function handleApiRequest(
     const targetId = urlPath.replace('/api/employees/', '');
     const targetUser = await db.prepare('SELECT * FROM users WHERE id = ?').bind(targetId).first<Record<string, unknown>>();
     if (!targetUser) return { status: 404, data: { error: 'Employee not found.' } };
+    if (user.role !== 'super_admin' && (targetUser.role === 'super_admin' || targetUser.role === 'hr_admin')) {
+      return { status: 403, data: { error: 'Only Super Admin can modify administrator accounts.' } };
+    }
 
     // Prevent demoting or deactivating the last active super_admin
     if (targetUser.role === 'super_admin' && (body.role !== 'super_admin' || body.status === 'inactive')) {
       const activeSuperAdmins = await db
-        .prepare('SELECT COUNT(*) as count FROM users WHERE role = "super_admin" AND status = "active"')
+        .prepare(`SELECT COUNT(*) as count FROM users WHERE role = 'super_admin' AND status = 'active'`)
         .first<{ count: number }>();
 
       if ((activeSuperAdmins?.count || 0) <= 1) {
@@ -1461,7 +1465,13 @@ export async function handleApiRequest(
     }
 
     const targetId = urlPath.replace('/api/employees/', '').replace('/reset-password', '');
-    const newPassword = String(body.new_password || 'Password@123');
+    const newPassword = String(body.new_password || '');
+    const targetAccount = await db.prepare('SELECT role FROM users WHERE id = ?').bind(targetId).first<{ role: string }>();
+    if (!targetAccount) return { status: 404, data: { error: 'Employee not found.' } };
+    if (user.role !== 'super_admin' && (targetAccount.role === 'super_admin' || targetAccount.role === 'hr_admin')) {
+      return { status: 403, data: { error: 'Only Super Admin can reset administrator passwords.' } };
+    }
+    if (newPassword.length < 12) return { status: 400, data: { error: 'New password must be at least 12 characters.' } };
 
     const newHash = await hashPassword(newPassword);
     await db.prepare('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?')
@@ -1470,14 +1480,14 @@ export async function handleApiRequest(
 
     await logAudit(db, user, 'ADMIN_RESET_PASSWORD', 'user', targetId, {}, context.ip);
 
-    return { status: 200, data: { success: true, message: `Password reset to: ${newPassword}` } };
+    return { status: 200, data: { success: true, message: 'Employee password reset successfully.' } };
   }
 
   // -------------------------------------------------------------
   // SETTINGS & HOLIDAYS
   // -------------------------------------------------------------
   if (urlPath === '/api/settings' && normalizedMethod === 'GET') {
-    const settings = await db.prepare('SELECT * FROM office_settings WHERE id = "default"').first();
+    const settings = await db.prepare(`SELECT * FROM office_settings WHERE id = 'default'`).first();
     return { status: 200, data: { settings } };
   }
 
@@ -1545,7 +1555,7 @@ export async function handleApiRequest(
 
     const holId = 'hol_' + Math.random().toString(36).substring(2, 11);
     await db
-      .prepare('INSERT INTO holidays (id, name, date, is_full_day, applicable_office, description, created_at) VALUES (?, ?, ?, 1, "all", ?, ?)')
+      .prepare(`INSERT INTO holidays (id, name, date, is_full_day, applicable_office, description, created_at) VALUES (?, ?, ?, 1, 'all', ?, ?)`)
       .bind(holId, name, date, desc, Date.now())
       .run();
 

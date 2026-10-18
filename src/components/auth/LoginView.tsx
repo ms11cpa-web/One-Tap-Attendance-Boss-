@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { PWAInstallButton } from '../pwa/PWAInstallButton';
-import { Lock, User, Sparkles, AlertCircle, ArrowRight } from 'lucide-react';
+import { Lock, User, AlertCircle, ArrowRight } from 'lucide-react';
+import { BootstrapView } from './BootstrapView';
 
 export const LoginView: React.FC = () => {
   const { login } = useAuth();
@@ -9,6 +10,16 @@ export const LoginView: React.FC = () => {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [setupState, setSetupState] = useState<'loading'|'migrate'|'bootstrap'|'login'>('loading');
+  useEffect(() => {
+    fetch('/api/bootstrap/status', { cache: 'no-store' })
+      .then(async (response) => {
+        if (!response.ok) throw new Error('Cannot check database setup status.');
+        return response.json();
+      })
+      .then((status) => setSetupState(!status.database_ready ? 'migrate' : status.needs_setup ? 'bootstrap' : 'login'))
+      .catch(() => setSetupState('migrate'));
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -27,11 +38,17 @@ export const LoginView: React.FC = () => {
     }
   };
 
-  const handleDemoFill = (id: string) => {
-    setEmployeeId(id);
-    setPassword('Password@123');
-    setError('');
-  };
+  if (setupState === 'loading') return <div className="min-h-screen bg-slate-950 text-teal-300 flex items-center justify-center">Checking database…</div>;
+  if (setupState === 'migrate') return (
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-6">
+      <div className="max-w-md p-7 bg-slate-900 border border-slate-800 rounded-2xl">
+        <h1 className="text-xl font-bold text-white mb-3">Boss needs database setup</h1>
+        <p className="text-slate-300 text-sm">Apply the existing D1 SQL migrations to boss-production-db, then refresh this page. Employee data will not be deleted.</p>
+        <code className="block mt-4 break-words text-teal-300 text-xs">npx wrangler d1 migrations apply DB --remote</code>
+      </div>
+    </div>
+  );
+  if (setupState === 'bootstrap') return <BootstrapView onSuccess={(id) => { setEmployeeId(id); setSetupState('login'); }} />;
 
   return (
     <div className="min-h-screen bg-slate-950 flex flex-col justify-center items-center px-4 sm:px-6 relative overflow-hidden select-none">
@@ -113,52 +130,6 @@ export const LoginView: React.FC = () => {
             </button>
           </form>
 
-          {/* Quick Demo Access Bar */}
-          <div className="mt-6 pt-5 border-t border-slate-800/80">
-            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 text-center mb-2.5">
-              Instant Role Sign-in (Demo Data)
-            </p>
-            <div className="grid grid-cols-2 gap-2 text-[11px]">
-              <button
-                type="button"
-                onClick={() => handleDemoFill('EMP001')}
-                className="p-2 rounded-xl bg-slate-800/60 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 transition text-left cursor-pointer"
-              >
-                <span className="font-bold block text-amber-400">Super Admin</span>
-                <span className="text-[10px] font-mono text-slate-500">EMP001</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleDemoFill('EMP002')}
-                className="p-2 rounded-xl bg-slate-800/60 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 transition text-left cursor-pointer"
-              >
-                <span className="font-bold block text-purple-400">HR Admin</span>
-                <span className="text-[10px] font-mono text-slate-500">EMP002</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleDemoFill('EMP003')}
-                className="p-2 rounded-xl bg-slate-800/60 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 transition text-left cursor-pointer"
-              >
-                <span className="font-bold block text-blue-400">Manager</span>
-                <span className="text-[10px] font-mono text-slate-500">EMP003</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleDemoFill('EMP004')}
-                className="p-2 rounded-xl bg-slate-800/60 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 transition text-left cursor-pointer"
-              >
-                <span className="font-bold block text-teal-400">Employee</span>
-                <span className="text-[10px] font-mono text-slate-500">EMP004</span>
-              </button>
-            </div>
-            <p className="text-[10px] text-center text-slate-500 mt-2 font-mono">
-              Default password: <span className="text-slate-400">Password@123</span>
-            </p>
-          </div>
         </div>
 
         {/* Footer */}
