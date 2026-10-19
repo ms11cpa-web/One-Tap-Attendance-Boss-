@@ -8,6 +8,7 @@ import { hashPassword, verifyPassword, generateSessionToken } from '../auth/cryp
 import { hashRecoveryCode } from '../auth/recovery.ts';
 import { getDhakaDateString } from '../utils/time.ts';
 import { calculateMonthlyPerformance, monthWindow, winnerEligible, type EligibleTask } from '../utils/ambassador-performance.ts';
+import { queueAmbassadors, queueManagers } from '../notifications/notification-core.ts';
 
 type Data = Record<string, unknown>;
 type Reply = { status: number; data?: unknown; headers?: Record<string, string> };
@@ -137,7 +138,10 @@ export async function handleAmbassadorRequest(
       const target = await db.prepare('SELECT id,role,status FROM users WHERE UPPER(employee_id)=?').bind(code).first<{id:string;role:string;status:string}>();
       if (!target || target.status !== 'active') return error(404, 'Active Boss staff member not found.');
       if (target.role === 'employee') return error(400, 'Assign an existing office administrator or manager, not a regular employee.');
-      if (body.remove === true) await db.prepare('DELETE FROM amb_program_managers WHERE user_id=?').bind(target.id).run();
+      if (body.remove === true) {
+        await db.prepare('DELETE FROM amb_program_managers WHERE user_id=?').bind(target.id).run();
+        await db.prepare("DELETE FROM amb_push_subscriptions WHERE owner_type='manager' AND owner_id=?").bind(target.id).run();
+      }
       else await db.prepare('INSERT OR IGNORE INTO amb_program_managers (user_id,assigned_at) VALUES (?,?)').bind(target.id,Date.now()).run();
       await logAudit(db,staff,'AMBASSADOR_MANAGER_ACCESS','campus_hub',target.id,{ remove:body.remove === true },ctx.ip);
       return ok({ success: true });
@@ -176,7 +180,10 @@ export async function handleAmbassadorRequest(
       const member = await db.prepare('SELECT id FROM amb_people WHERE id=?').bind(id).first();
       if (!member) return error(404, 'Ambassador not found.');
       await db.prepare('UPDATE amb_people SET status=?, updated_at=? WHERE id=?').bind(status,Date.now(),id).run();
-      if (status === 'inactive') await db.prepare('DELETE FROM amb_sessions WHERE ambassador_id=?').bind(id).run();
+      if (status === 'inactive') {
+        await db.prepare('DELETE FROM amb_sessions WHERE ambassador_id=?').bind(id).run();
+        await db.prepare("DELETE FROM amb_push_subscriptions WHERE owner_type='ambassador' AND owner_id=?").bind(id).run();
+      }
       await logAudit(db,staff,'AMBASSADOR_STATUS','amb_person',id,{ status },ctx.ip);
       return ok({ success: true });
     }
@@ -211,6 +218,8 @@ export async function handleAmbassadorRequest(
           .bind(uid(),id,target.id,now).run();
       }
       await logAudit(db,staff,'CAMPAIGN_CREATE','amb_campaign',id,{ title,assignments:targets.length },ctx.ip);
+      await queueAmbassadors(db,targets.map(t=>t.id),'task',`campaign:${id}`,'New AGN task assigned',`${title} · Due ${dueDate}`);
+      await queueManagers(db,'task',`campaign-manager:${id}`,'AGN campaign published',`${title} assigned to ${targets.length} ambassadors.`);
       return ok({ id, assignments:targets.length });
     }
     if (path === '/api/ambassadors/admin/reviews' && verb === 'POST') {
@@ -233,6 +242,8 @@ export async function handleAmbassadorRequest(
       await db.prepare('INSERT INTO amb_review_events (id,submission_id,reviewer_id,decision,note,recorded_at) VALUES (?,?,?,?,?,?)')
         .bind(uid(),id,staff.id,decision,note,now).run();
       await logAudit(db,staff,'AMBASSADOR_REVIEW','amb_submission',id,{ decision },ctx.ip);
+      const owner=await db.prepare('SELECT a.ambassador_id,c.title FROM amb_submissions s JOIN amb_assignments a ON a.id=s.assignment_id JOIN amb_campaigns c ON c.id=a.campaign_id WHERE s.id=?').bind(id).first<{ambassador_id:string;title:string}>();
+      if(owner) await queueAmbassadors(db,[owner.ambassador_id],'review',`review:${id}:${decision}`,decision==='approved'?'AGN submission approved':decision==='revision_requested'?'AGN revision requested':'AGN submission reviewed',`${owner.title} · ${decision.replace('_',' ')}`);
       return ok({ success: true });
     }
     return error(404,'Campus Hub manager endpoint not found.');
@@ -293,6 +304,7 @@ export async function handleAmbassadorRequest(
     else if (old.status === 'revision_requested') await db.prepare(`UPDATE amb_submissions SET proof_url=?,notes=?,status='submitted',submitted_at=?,reviewed_by=NULL,reviewed_at=NULL,
         review_note='',quality_score=NULL,revisions=? WHERE id=? AND status='revision_requested'`).bind(url,notes,now,Number(old.revisions)+1,old.id).run();
     else return error(409,'This task is already submitted or has a final review decision.');
+    await queueManagers(db,'task',`submission:${assignmentId}:${now}`,'New AGN submission',`An ambassador has submitted work for review.`);
     return ok({ success:true });
   }
   return error(404,'Campus Ambassador endpoint not found.');

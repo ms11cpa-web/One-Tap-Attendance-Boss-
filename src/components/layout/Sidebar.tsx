@@ -123,7 +123,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   ];
 
   return (
-    <aside className="w-64 bg-slate-900 border-r border-slate-800 flex-shrink-0 hidden md:flex flex-col h-[calc(100vh-4rem)] sticky top-16 select-none">
+    <aside className="boss-chrome w-64 bg-slate-900 border-r border-slate-800 flex-shrink-0 hidden md:flex flex-col h-[calc(100vh-4rem)] sticky top-16 select-none">
       {/* Navigation list */}
       <div className="flex-1 py-4 px-3 space-y-1 overflow-y-auto">
         <div className="px-3 pb-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">

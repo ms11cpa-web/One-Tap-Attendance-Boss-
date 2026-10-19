@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { apiRequest } from '../../api/client';
 import { ShieldCheck, MapPin } from 'lucide-react';
+import { PasswordInput } from './PasswordInput';
+import { ThemeToggle } from '../layout/ThemeToggle';
 
 export const BootstrapView: React.FC<{ onSuccess: (employeeId: string) => void }> = ({ onSuccess }) => {
   const [id, setId] = useState('ADMIN');
@@ -40,7 +42,8 @@ export const BootstrapView: React.FC<{ onSuccess: (employeeId: string) => void }
   };
   const input = 'w-full rounded-xl bg-slate-950 text-slate-100 border border-slate-700 px-3 py-2.5 outline-none focus:border-teal-400';
   return (
-    <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center p-4">
+    <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center p-4 relative">
+      <div className="absolute top-4 right-4"><ThemeToggle compact /></div>
       <form onSubmit={submit} className="w-full max-w-xl bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 space-y-4">
         <ShieldCheck className="text-teal-400 w-9 h-9" />
         <h1 className="text-2xl font-extrabold">Set up Boss</h1>
@@ -49,8 +52,8 @@ export const BootstrapView: React.FC<{ onSuccess: (employeeId: string) => void }
         {error && <p role="alert" className="text-sm text-rose-300 bg-rose-950/40 p-3 rounded-lg">{error}</p>}
         <label className="block text-sm">Super Admin Employee ID<input className={input} value={id} onChange={e=>setId(e.target.value)} required /></label>
         <label className="block text-sm">Your full name<input className={input} value={name} onChange={e=>setName(e.target.value)} required /></label>
-        <label className="block text-sm">New admin password (12+ characters)<input className={input} type="password" autoComplete="new-password" minLength={12} value={password} onChange={e=>setPassword(e.target.value)} required /></label>
-        <label className="block text-sm">Private setup secret<input className={input} type="password" autoComplete="off" value={secret} onChange={e=>setSecret(e.target.value)} required /></label>
+        <label className="block text-sm">New admin password (12+ characters)<PasswordInput showLabel="admin password" className={input} autoComplete="new-password" minLength={12} value={password} onChange={e=>setPassword(e.target.value)} required /></label>
+        <label className="block text-sm">Private setup secret<PasswordInput showLabel="private setup secret" className={input} autoComplete="off" value={secret} onChange={e=>setSecret(e.target.value)} required /></label>
         <div className="border-t border-slate-700 pt-3"><h2 className="font-semibold flex items-center gap-2"><MapPin className="w-4 h-4 text-teal-400"/> Office location</h2><p className="text-xs text-slate-400 mt-1">For accurate GPS attendance, capture location while physically at your office, or enter its coordinates.</p></div>
         <label className="block text-sm">Office name<input className={input} value={office} onChange={e=>setOffice(e.target.value)} placeholder="e.g., Main Office" required /></label>
         <button type="button" className="bg-slate-700 py-2 px-4 rounded-xl text-sm hover:bg-slate-600" disabled={locating} onClick={useLocation}>{locating?'Locating…':'Use this device location'}</button>

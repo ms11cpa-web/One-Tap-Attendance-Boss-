@@ -3,8 +3,10 @@ import { hashRecoveryCode } from '../server/auth/recovery.ts';
 import { D1DatabaseLike } from '../server/db/types.ts';
 import { handleBootstrapRequest } from './bootstrap.ts';
 import { handleAmbassadorRequest } from '../server/routes/ambassadors.ts';
+import { notificationApi, scheduledNotificationJobs, deliverPendingPush } from '../server/notifications/notification-core.ts';
+import type { PushSecrets } from '../server/notifications/web-push.ts';
 
-export interface Env {
+export interface Env extends PushSecrets {
   DB: D1DatabaseLike;
   BOSS_BOOTSTRAP_SECRET?: string;
   ASSETS?: {
@@ -13,7 +15,7 @@ export interface Env {
 }
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, context?: {waitUntil(promise: Promise<unknown>): void}): Promise<Response> {
     const url = new URL(request.url);
 
     // API Route routing
@@ -58,6 +60,8 @@ export default {
         // router, which queries the sessions table.
         if (url.pathname.startsWith('/api/bootstrap/')) {
           apiRes = await handleBootstrapRequest(request.method, url.pathname, body, env);
+        } else if (url.pathname.startsWith('/api/ambassadors/notifications/')) {
+          apiRes = await notificationApi(request.method,url.pathname,body,{token,ambassadorToken},env.DB,env);
         } else if (url.pathname.startsWith('/api/ambassadors/')) {
           apiRes = await handleAmbassadorRequest(request.method, url.pathname, body, { token, ambassadorToken, ip: clientIp, query }, env.DB);
         } else {
@@ -101,6 +105,9 @@ export default {
         }
       }
 
+      if (apiRes.status < 400 && request.method === 'POST' && (['/api/ambassadors/admin/campaigns','/api/ambassadors/admin/reviews','/api/ambassadors/submit'].includes(url.pathname) || /^\/api\/ambassadors\/notifications\/(manager|member)\/test$/.test(url.pathname)) && context) {
+        context.waitUntil(deliverPendingPush(env.DB,env,24).catch(err=>console.warn('[AGN push]',err instanceof Error?err.message:'unknown')));
+      }
       const headers = new Headers(apiRes.headers || {});
       if (url.pathname.startsWith('/api/ambassadors/')) headers.set('Cache-Control', 'no-store');
       if (!headers.has('Content-Type') && !apiRes.binary) {
@@ -126,5 +133,11 @@ export default {
     }
 
     return new Response('Not Found', { status: 404 });
+  },
+  async scheduled(_event: unknown, env: Env, context: {waitUntil(promise:Promise<unknown>):void}):Promise<void> {
+    context.waitUntil((async()=>{
+      await scheduledNotificationJobs(env.DB,Date.now());
+      await deliverPendingPush(env.DB,env,80);
+    })());
   },
 };

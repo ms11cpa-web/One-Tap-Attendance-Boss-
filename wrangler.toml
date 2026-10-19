@@ -21,3 +21,8 @@ not_found_handling = "single-page-application"
 [vars]
 APP_NAME = "Boss"
 TIMEZONE = "Asia/Dhaka"
+
+# Hourly delivery retries; actual 07:00/19:00 Asia/Dhaka reminders
+# execute only at 01:00/13:00 UTC.
+[triggers]
+crons = ["0 * * * *"]

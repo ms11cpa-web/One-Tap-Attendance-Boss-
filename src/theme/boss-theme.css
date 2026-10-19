@@ -1,0 +1,400 @@
+/* Boss appearance v4. Keep these overrides isolated to the office/login/ambassador UI.
+   They do not alter Tailwind variables globally or the PWA push notification worker.
+   Tailwind utility names are matched as exact class tokens (including opacity variants).
+   The teal/emerald brand action colors remain unchanged in both modes. */
+html[data-boss-theme="dark"] { color-scheme: dark; }
+html[data-boss-theme="light"] { color-scheme: light; }
+html[data-boss-theme="dark"] body { background: #0b1220; }
+html[data-boss-theme="light"] body { background: #f8fafc; }
+
+/* The navigation theme switch is deliberately independent of the original utility palette. */
+.boss-theme-toggle {
+  display:inline-flex; align-items:center; justify-content:center; gap:.45rem;
+  min-height:2.4rem; padding:.45rem .65rem;
+  border:1px solid var(--boss-toggle-border,#cbd5e1); border-radius:.75rem;
+  background:var(--boss-toggle-bg,#f1f5f9);color:var(--boss-toggle-text,#0f172a);
+  font-size:.75rem;font-weight:700;line-height:1.1;white-space:nowrap;
+  cursor:pointer; transition: background-color .18s ease,border-color .18s ease,color .18s ease;
+}
+.boss-theme-toggle:hover { background:var(--boss-toggle-hover,#e2e8f0); }
+.boss-theme-toggle:focus-visible { outline:2px solid #0d9488;outline-offset:3px; }
+html[data-boss-theme="dark"] {
+  --boss-toggle-bg:#1e293b; --boss-toggle-text:#f1f5f9;
+  --boss-toggle-border:#475569; --boss-toggle-hover:#334155;
+}
+html[data-boss-theme="light"] {
+  --boss-toggle-bg:#f1f5f9;--boss-toggle-text:#0f172a;
+  --boss-toggle-border:#cbd5e1;--boss-toggle-hover:#e2e8f0;
+}
+@media(max-width:420px) { .boss-theme-toggle--compact span { display:none; } .boss-theme-toggle--compact { min-width:2.45rem;padding:.45rem; } }
+
+/* Dark office surfaces: preserve the original 11am–7pm attendance layout and state colors. */
+html[data-boss-theme="dark"] .boss-employee { background-color:#0b1220; color:#e2e8f0; }
+/* Light ambassador and authentication surfaces: retain contrast against pale cards. */
+html[data-boss-theme="light"] .boss-ambassador,
+html[data-boss-theme="light"] .boss-auth { background-color:#f8fafc;color:#0f172a; }
+
+html[data-boss-theme="dark"] .boss-employee [class~="bg-white"],
+html[data-boss-theme="dark"] .boss-employee[class~="bg-white"] { background-color:#142137; }
+
+html[data-boss-theme="dark"] .boss-employee [class~="bg-white/90"],
+html[data-boss-theme="dark"] .boss-employee[class~="bg-white/90"] { background-color:rgba(20,33,55,.96); }
+
+html[data-boss-theme="dark"] .boss-employee [class~="bg-white/80"],
+html[data-boss-theme="dark"] .boss-employee[class~="bg-white/80"] { background-color:rgba(20,33,55,.85); }
+
+html[data-boss-theme="dark"] .boss-employee [class~="bg-slate-50"],
+html[data-boss-theme="dark"] .boss-employee[class~="bg-slate-50"] { background-color:#0b1220; }
+
+html[data-boss-theme="dark"] .boss-employee [class~="bg-slate-50/80"],
+html[data-boss-theme="dark"] .boss-employee[class~="bg-slate-50/80"] { background-color:rgba(15,23,42,.92); }
+
+html[data-boss-theme="dark"] .boss-employee [class~="bg-slate-100"],
+html[data-boss-theme="dark"] .boss-employee[class~="bg-slate-100"] { background-color:#1e293b; }
+
+html[data-boss-theme="dark"] .boss-employee [class~="bg-slate-200"],
+html[data-boss-theme="dark"] .boss-employee[class~="bg-slate-200"] { background-color:#334155; }
+
+html[data-boss-theme="dark"] .boss-employee [class~="bg-slate-300"],
+html[data-boss-theme="dark"] .boss-employee[class~="bg-slate-300"] { background-color:#475569; }
+
+html[data-boss-theme="dark"] .boss-employee [class~="border-slate-100"],
+html[data-boss-theme="dark"] .boss-employee[class~="border-slate-100"] { border-color:#334155; }
+
+html[data-boss-theme="dark"] .boss-employee [class~="border-slate-200"],
+html[data-boss-theme="dark"] .boss-employee[class~="border-slate-200"] { border-color:#334155; }
+
+html[data-boss-theme="dark"] .boss-employee [class~="border-slate-200/80"],
+html[data-boss-theme="dark"] .boss-employee[class~="border-slate-200/80"] { border-color:rgba(71,85,105,.8); }
+
+html[data-boss-theme="dark"] .boss-employee [class~="border-slate-300"],
+html[data-boss-theme="dark"] .boss-employee[class~="border-slate-300"] { border-color:#475569; }
+
+html[data-boss-theme="dark"] .boss-employee [class~="text-slate-900"],
+html[data-boss-theme="dark"] .boss-employee[class~="text-slate-900"] { color:#f8fafc; }
+
+html[data-boss-theme="dark"] .boss-employee [class~="text-slate-800"],
+html[data-boss-theme="dark"] .boss-employee[class~="text-slate-800"] { color:#f1f5f9; }
+
+html[data-boss-theme="dark"] .boss-employee [class~="text-slate-700"],
+html[data-boss-theme="dark"] .boss-employee[class~="text-slate-700"] { color:#e2e8f0; }
+
+html[data-boss-theme="dark"] .boss-employee [class~="text-slate-600"],
+html[data-boss-theme="dark"] .boss-employee[class~="text-slate-600"] { color:#cbd5e1; }
+
+html[data-boss-theme="dark"] .boss-employee [class~="text-slate-500"],
+html[data-boss-theme="dark"] .boss-employee[class~="text-slate-500"] { color:#a9bacc; }
+
+html[data-boss-theme="dark"] .boss-employee [class~="bg-teal-50"],
+html[data-boss-theme="dark"] .boss-employee[class~="bg-teal-50"] { background-color:rgba(13,148,136,.14); }
+
+html[data-boss-theme="dark"] .boss-employee [class~="bg-emerald-50"],
+html[data-boss-theme="dark"] .boss-employee[class~="bg-emerald-50"] { background-color:rgba(5,150,105,.14); }
+
+html[data-boss-theme="dark"] .boss-employee [class~="bg-emerald-100"],
+html[data-boss-theme="dark"] .boss-employee[class~="bg-emerald-100"] { background-color:rgba(5,150,105,.19); }
+
+html[data-boss-theme="dark"] .boss-employee [class~="bg-rose-50"],
+html[data-boss-theme="dark"] .boss-employee[class~="bg-rose-50"] { background-color:rgba(225,29,72,.14); }
+
+html[data-boss-theme="dark"] .boss-employee [class~="bg-rose-100"],
+html[data-boss-theme="dark"] .boss-employee[class~="bg-rose-100"] { background-color:rgba(225,29,72,.20); }
+
+html[data-boss-theme="dark"] .boss-employee [class~="bg-amber-50"],
+html[data-boss-theme="dark"] .boss-employee[class~="bg-amber-50"] { background-color:rgba(217,119,6,.14); }
+
+html[data-boss-theme="dark"] .boss-employee [class~="bg-amber-100"],
+html[data-boss-theme="dark"] .boss-employee[class~="bg-amber-100"] { background-color:rgba(217,119,6,.20); }
+
+html[data-boss-theme="dark"] .boss-employee [class~="bg-blue-50"],
+html[data-boss-theme="dark"] .boss-employee[class~="bg-blue-50"] { background-color:rgba(37,99,235,.14); }
+
+html[data-boss-theme="dark"] .boss-employee [class~="bg-purple-50"],
+html[data-boss-theme="dark"] .boss-employee[class~="bg-purple-50"] { background-color:rgba(147,51,234,.14); }
+
+html[data-boss-theme="dark"] .boss-employee [class~="bg-purple-100"],
+html[data-boss-theme="dark"] .boss-employee[class~="bg-purple-100"] { background-color:rgba(147,51,234,.20); }
+
+html[data-boss-theme="dark"] .boss-employee [class~="border-teal-100"],
+html[data-boss-theme="dark"] .boss-employee[class~="border-teal-100"] { border-color:rgba(45,212,191,.3); }
+
+html[data-boss-theme="dark"] .boss-employee [class~="border-emerald-200"],
+html[data-boss-theme="dark"] .boss-employee[class~="border-emerald-200"] { border-color:rgba(110,231,183,.3); }
+
+html[data-boss-theme="dark"] .boss-employee [class~="border-rose-100"],
+html[data-boss-theme="dark"] .boss-employee[class~="border-rose-100"] { border-color:rgba(251,113,133,.3); }
+
+html[data-boss-theme="dark"] .boss-employee [class~="border-rose-200"],
+html[data-boss-theme="dark"] .boss-employee[class~="border-rose-200"] { border-color:rgba(251,113,133,.3); }
+
+html[data-boss-theme="dark"] .boss-employee [class~="border-amber-200"],
+html[data-boss-theme="dark"] .boss-employee[class~="border-amber-200"] { border-color:rgba(252,211,77,.3); }
+
+html[data-boss-theme="dark"] .boss-employee [class~="border-blue-100"],
+html[data-boss-theme="dark"] .boss-employee[class~="border-blue-100"] { border-color:rgba(147,197,253,.3); }
+
+html[data-boss-theme="dark"] .boss-employee [class~="text-teal-700"],
+html[data-boss-theme="dark"] .boss-employee[class~="text-teal-700"] { color:#5eead4; }
+
+html[data-boss-theme="dark"] .boss-employee [class~="text-teal-800"],
+html[data-boss-theme="dark"] .boss-employee[class~="text-teal-800"] { color:#5eead4; }
+
+html[data-boss-theme="dark"] .boss-employee [class~="text-teal-600"],
+html[data-boss-theme="dark"] .boss-employee[class~="text-teal-600"] { color:#2dd4bf; }
+
+html[data-boss-theme="dark"] .boss-employee [class~="text-emerald-700"],
+html[data-boss-theme="dark"] .boss-employee[class~="text-emerald-700"] { color:#6ee7b7; }
+
+html[data-boss-theme="dark"] .boss-employee [class~="text-emerald-800"],
+html[data-boss-theme="dark"] .boss-employee[class~="text-emerald-800"] { color:#a7f3d0; }
+
+html[data-boss-theme="dark"] .boss-employee [class~="text-emerald-600"],
+html[data-boss-theme="dark"] .boss-employee[class~="text-emerald-600"] { color:#34d399; }
+
+html[data-boss-theme="dark"] .boss-employee [class~="text-rose-700"],
+html[data-boss-theme="dark"] .boss-employee[class~="text-rose-700"] { color:#fda4af; }
+
+html[data-boss-theme="dark"] .boss-employee [class~="text-rose-800"],
+html[data-boss-theme="dark"] .boss-employee[class~="text-rose-800"] { color:#fecdd3; }
+
+html[data-boss-theme="dark"] .boss-employee [class~="text-rose-600"],
+html[data-boss-theme="dark"] .boss-employee[class~="text-rose-600"] { color:#fb7185; }
+
+html[data-boss-theme="dark"] .boss-employee [class~="text-amber-600"],
+html[data-boss-theme="dark"] .boss-employee[class~="text-amber-600"] { color:#fcd34d; }
+
+html[data-boss-theme="dark"] .boss-employee [class~="text-amber-800"],
+html[data-boss-theme="dark"] .boss-employee[class~="text-amber-800"] { color:#fde68a; }
+
+html[data-boss-theme="dark"] .boss-employee [class~="text-amber-700/80"],
+html[data-boss-theme="dark"] .boss-employee[class~="text-amber-700/80"] { color:#fde68a; }
+
+html[data-boss-theme="dark"] .boss-employee [class~="text-blue-700"],
+html[data-boss-theme="dark"] .boss-employee[class~="text-blue-700"] { color:#93c5fd; }
+
+html[data-boss-theme="dark"] .boss-employee [class~="text-blue-800"],
+html[data-boss-theme="dark"] .boss-employee[class~="text-blue-800"] { color:#bfdbfe; }
+
+html[data-boss-theme="dark"] .boss-employee [class~="text-blue-900"],
+html[data-boss-theme="dark"] .boss-employee[class~="text-blue-900"] { color:#dbeafe; }
+
+html[data-boss-theme="dark"] .boss-employee [class~="text-purple-700"],
+html[data-boss-theme="dark"] .boss-employee[class~="text-purple-700"] { color:#d8b4fe; }
+
+html[data-boss-theme="dark"] .boss-employee [class~="text-purple-800"],
+html[data-boss-theme="dark"] .boss-employee[class~="text-purple-800"] { color:#e9d5ff; }
+
+html[data-boss-theme="dark"] .boss-employee [class~="text-purple-600"],
+html[data-boss-theme="dark"] .boss-employee[class~="text-purple-600"] { color:#c084fc; }
+
+html[data-boss-theme="dark"] .boss-employee [class~="hover:bg-slate-50"]:hover {background-color:#25344a;}
+
+html[data-boss-theme="dark"] .boss-employee [class~="hover:bg-slate-50/80"]:hover {background-color:#25344a;}
+
+html[data-boss-theme="dark"] .boss-employee [class~="hover:bg-slate-100"]:hover {background-color:#334155;}
+
+html[data-boss-theme="dark"] .boss-employee [class~="hover:bg-emerald-100"]:hover {background-color:rgba(5,150,105,.25);}
+
+html[data-boss-theme="dark"] .boss-employee [class~="hover:bg-rose-50"]:hover {background-color:rgba(225,29,72,.25);}
+
+html[data-boss-theme="dark"] .boss-employee [class~="hover:bg-rose-100"]:hover {background-color:rgba(225,29,72,.25);}
+
+html[data-boss-theme="dark"] .boss-employee :is(input,select,textarea) { color-scheme: dark; }
+html[data-boss-theme="dark"] .boss-employee :is(input,textarea)::placeholder {color:#94a3b8;opacity:1;}
+html[data-boss-theme="dark"] .boss-employee :is(table,thead,tbody) {border-color:#334155;}
+
+html[data-boss-theme="light"] .boss-ambassador [class~="bg-slate-950"],
+html[data-boss-theme="light"] .boss-auth [class~="bg-slate-950"],
+html[data-boss-theme="light"] .boss-ambassador[class~="bg-slate-950"],
+html[data-boss-theme="light"] .boss-auth[class~="bg-slate-950"] { background-color:#f8fafc; }
+
+html[data-boss-theme="light"] .boss-ambassador [class~="bg-slate-900"],
+html[data-boss-theme="light"] .boss-auth [class~="bg-slate-900"],
+html[data-boss-theme="light"] .boss-ambassador[class~="bg-slate-900"],
+html[data-boss-theme="light"] .boss-auth[class~="bg-slate-900"] { background-color:#ffffff; }
+
+html[data-boss-theme="light"] .boss-ambassador [class~="bg-slate-900/90"],
+html[data-boss-theme="light"] .boss-auth [class~="bg-slate-900/90"],
+html[data-boss-theme="light"] .boss-ambassador[class~="bg-slate-900/90"],
+html[data-boss-theme="light"] .boss-auth[class~="bg-slate-900/90"] { background-color:rgba(255,255,255,.97); }
+
+html[data-boss-theme="light"] .boss-ambassador [class~="bg-slate-800"],
+html[data-boss-theme="light"] .boss-auth [class~="bg-slate-800"],
+html[data-boss-theme="light"] .boss-ambassador[class~="bg-slate-800"],
+html[data-boss-theme="light"] .boss-auth[class~="bg-slate-800"] { background-color:#e2e8f0; }
+
+html[data-boss-theme="light"] .boss-ambassador [class~="bg-slate-800/80"],
+html[data-boss-theme="light"] .boss-auth [class~="bg-slate-800/80"],
+html[data-boss-theme="light"] .boss-ambassador[class~="bg-slate-800/80"],
+html[data-boss-theme="light"] .boss-auth[class~="bg-slate-800/80"] { background-color:#e2e8f0; }
+
+html[data-boss-theme="light"] .boss-ambassador [class~="bg-slate-700"],
+html[data-boss-theme="light"] .boss-auth [class~="bg-slate-700"],
+html[data-boss-theme="light"] .boss-ambassador[class~="bg-slate-700"],
+html[data-boss-theme="light"] .boss-auth[class~="bg-slate-700"] { background-color:#cbd5e1; }
+
+html[data-boss-theme="light"] .boss-ambassador [class~="border-slate-800"],
+html[data-boss-theme="light"] .boss-auth [class~="border-slate-800"],
+html[data-boss-theme="light"] .boss-ambassador[class~="border-slate-800"],
+html[data-boss-theme="light"] .boss-auth[class~="border-slate-800"] { border-color:#e2e8f0; }
+
+html[data-boss-theme="light"] .boss-ambassador [class~="border-slate-700"],
+html[data-boss-theme="light"] .boss-auth [class~="border-slate-700"],
+html[data-boss-theme="light"] .boss-ambassador[class~="border-slate-700"],
+html[data-boss-theme="light"] .boss-auth[class~="border-slate-700"] { border-color:#cbd5e1; }
+
+html[data-boss-theme="light"] .boss-ambassador [class~="border-slate-900"],
+html[data-boss-theme="light"] .boss-auth [class~="border-slate-900"],
+html[data-boss-theme="light"] .boss-ambassador[class~="border-slate-900"],
+html[data-boss-theme="light"] .boss-auth[class~="border-slate-900"] { border-color:#cbd5e1; }
+
+html[data-boss-theme="light"] .boss-ambassador [class~="text-white"],
+html[data-boss-theme="light"] .boss-auth [class~="text-white"],
+html[data-boss-theme="light"] .boss-ambassador[class~="text-white"],
+html[data-boss-theme="light"] .boss-auth[class~="text-white"] { color:#0f172a; }
+
+html[data-boss-theme="light"] .boss-ambassador [class~="text-slate-100"],
+html[data-boss-theme="light"] .boss-auth [class~="text-slate-100"],
+html[data-boss-theme="light"] .boss-ambassador[class~="text-slate-100"],
+html[data-boss-theme="light"] .boss-auth[class~="text-slate-100"] { color:#1e293b; }
+
+html[data-boss-theme="light"] .boss-ambassador [class~="text-slate-200"],
+html[data-boss-theme="light"] .boss-auth [class~="text-slate-200"],
+html[data-boss-theme="light"] .boss-ambassador[class~="text-slate-200"],
+html[data-boss-theme="light"] .boss-auth[class~="text-slate-200"] { color:#334155; }
+
+html[data-boss-theme="light"] .boss-ambassador [class~="text-slate-300"],
+html[data-boss-theme="light"] .boss-auth [class~="text-slate-300"],
+html[data-boss-theme="light"] .boss-ambassador[class~="text-slate-300"],
+html[data-boss-theme="light"] .boss-auth[class~="text-slate-300"] { color:#475569; }
+
+html[data-boss-theme="light"] .boss-ambassador [class~="text-slate-400"],
+html[data-boss-theme="light"] .boss-auth [class~="text-slate-400"],
+html[data-boss-theme="light"] .boss-ambassador[class~="text-slate-400"],
+html[data-boss-theme="light"] .boss-auth[class~="text-slate-400"] { color:#64748b; }
+
+html[data-boss-theme="light"] .boss-ambassador [class~="text-slate-500"],
+html[data-boss-theme="light"] .boss-auth [class~="text-slate-500"],
+html[data-boss-theme="light"] .boss-ambassador[class~="text-slate-500"],
+html[data-boss-theme="light"] .boss-auth[class~="text-slate-500"] { color:#64748b; }
+
+html[data-boss-theme="light"] .boss-ambassador [class~="text-teal-200"],
+html[data-boss-theme="light"] .boss-auth [class~="text-teal-200"],
+html[data-boss-theme="light"] .boss-ambassador[class~="text-teal-200"],
+html[data-boss-theme="light"] .boss-auth[class~="text-teal-200"] { color:#115e59; }
+
+html[data-boss-theme="light"] .boss-ambassador [class~="text-teal-300"],
+html[data-boss-theme="light"] .boss-auth [class~="text-teal-300"],
+html[data-boss-theme="light"] .boss-ambassador[class~="text-teal-300"],
+html[data-boss-theme="light"] .boss-auth[class~="text-teal-300"] { color:#0f766e; }
+
+html[data-boss-theme="light"] .boss-ambassador [class~="text-teal-400"],
+html[data-boss-theme="light"] .boss-auth [class~="text-teal-400"],
+html[data-boss-theme="light"] .boss-ambassador[class~="text-teal-400"],
+html[data-boss-theme="light"] .boss-auth[class~="text-teal-400"] { color:#0f766e; }
+
+html[data-boss-theme="light"] .boss-ambassador [class~="text-emerald-300"],
+html[data-boss-theme="light"] .boss-auth [class~="text-emerald-300"],
+html[data-boss-theme="light"] .boss-ambassador[class~="text-emerald-300"],
+html[data-boss-theme="light"] .boss-auth[class~="text-emerald-300"] { color:#047857; }
+
+html[data-boss-theme="light"] .boss-ambassador [class~="text-amber-300"],
+html[data-boss-theme="light"] .boss-auth [class~="text-amber-300"],
+html[data-boss-theme="light"] .boss-ambassador[class~="text-amber-300"],
+html[data-boss-theme="light"] .boss-auth[class~="text-amber-300"] { color:#92400e; }
+
+html[data-boss-theme="light"] .boss-ambassador [class~="text-rose-200"],
+html[data-boss-theme="light"] .boss-auth [class~="text-rose-200"],
+html[data-boss-theme="light"] .boss-ambassador[class~="text-rose-200"],
+html[data-boss-theme="light"] .boss-auth[class~="text-rose-200"] { color:#9f1239; }
+
+html[data-boss-theme="light"] .boss-ambassador [class~="text-rose-300"],
+html[data-boss-theme="light"] .boss-auth [class~="text-rose-300"],
+html[data-boss-theme="light"] .boss-ambassador[class~="text-rose-300"],
+html[data-boss-theme="light"] .boss-auth[class~="text-rose-300"] { color:#be123c; }
+
+html[data-boss-theme="light"] .boss-ambassador [class~="bg-rose-950/50"],
+html[data-boss-theme="light"] .boss-auth [class~="bg-rose-950/50"],
+html[data-boss-theme="light"] .boss-ambassador[class~="bg-rose-950/50"],
+html[data-boss-theme="light"] .boss-auth[class~="bg-rose-950/50"] { background-color:#fff1f2; }
+
+html[data-boss-theme="light"] .boss-ambassador [class~="bg-rose-950/40"],
+html[data-boss-theme="light"] .boss-auth [class~="bg-rose-950/40"],
+html[data-boss-theme="light"] .boss-ambassador[class~="bg-rose-950/40"],
+html[data-boss-theme="light"] .boss-auth[class~="bg-rose-950/40"] { background-color:#fff1f2; }
+
+html[data-boss-theme="light"] .boss-ambassador [class~="bg-teal-950"],
+html[data-boss-theme="light"] .boss-auth [class~="bg-teal-950"],
+html[data-boss-theme="light"] .boss-ambassador[class~="bg-teal-950"],
+html[data-boss-theme="light"] .boss-auth[class~="bg-teal-950"] { background-color:#f0fdfa; }
+
+html[data-boss-theme="light"] .boss-ambassador [class~="bg-emerald-950"],
+html[data-boss-theme="light"] .boss-auth [class~="bg-emerald-950"],
+html[data-boss-theme="light"] .boss-ambassador[class~="bg-emerald-950"],
+html[data-boss-theme="light"] .boss-auth[class~="bg-emerald-950"] { background-color:#ecfdf5; }
+
+html[data-boss-theme="light"] .boss-ambassador [class~="bg-amber-950"],
+html[data-boss-theme="light"] .boss-auth [class~="bg-amber-950"],
+html[data-boss-theme="light"] .boss-ambassador[class~="bg-amber-950"],
+html[data-boss-theme="light"] .boss-auth[class~="bg-amber-950"] { background-color:#fffbeb; }
+
+html[data-boss-theme="light"] .boss-ambassador [class~="border-rose-900"],
+html[data-boss-theme="light"] .boss-auth [class~="border-rose-900"],
+html[data-boss-theme="light"] .boss-ambassador[class~="border-rose-900"],
+html[data-boss-theme="light"] .boss-auth[class~="border-rose-900"] { border-color:#fecdd3; }
+
+html[data-boss-theme="light"] .boss-ambassador [class~="border-teal-700"],
+html[data-boss-theme="light"] .boss-auth [class~="border-teal-700"],
+html[data-boss-theme="light"] .boss-ambassador[class~="border-teal-700"],
+html[data-boss-theme="light"] .boss-auth[class~="border-teal-700"] { border-color:#99f6e4; }
+
+html[data-boss-theme="light"] .boss-ambassador [class~="bg-teal-600"][class~="text-white"],
+html[data-boss-theme="light"] .boss-ambassador [class~="bg-blue-600"][class~="text-white"],
+html[data-boss-theme="light"] .boss-ambassador [class~="bg-emerald-600"][class~="text-white"] {color:#ffffff;}
+
+html[data-boss-theme="light"] .boss-auth [class~="bg-teal-600"][class~="text-white"],
+html[data-boss-theme="light"] .boss-auth [class~="bg-blue-600"][class~="text-white"],
+html[data-boss-theme="light"] .boss-auth [class~="bg-emerald-600"][class~="text-white"] {color:#ffffff;}
+
+html[data-boss-theme="light"] :is(.boss-ambassador,.boss-auth) :is(input,textarea,select) { color-scheme:light; }
+html[data-boss-theme="light"] :is(.boss-ambassador,.boss-auth) :is(input,textarea)::placeholder {color:#64748b;opacity:1;}
+html[data-boss-theme="light"] .boss-auth [class~="bg-teal-500/10"] {background-color:rgba(13,148,136,.08);}
+html[data-boss-theme="light"] .boss-auth [class~="bg-emerald-500/10"] {background-color:rgba(16,185,129,.07);}
+/* High-contrast links and badges. */
+html[data-boss-theme="light"] .boss-ambassador a[class~="text-teal-300"],
+html[data-boss-theme="light"] .boss-auth a[class~="text-teal-300"] {color:#0f766e;}
+/* Keyboard and reduced-motion support. */
+.boss-theme-toggle:focus-visible {box-shadow:0 0 0 4px rgba(13,148,136,.16);}
+@media (prefers-reduced-motion:reduce){.boss-theme-toggle{transition:none;}}
+
+/* Match employee navigation, sidebar and mobile menus to Light mode as well. */
+html[data-boss-theme="light"] .boss-employee .boss-chrome {
+  background-color:#ffffff; color:#0f172a; border-color:#e2e8f0;
+}
+html[data-boss-theme="light"] .boss-employee .boss-chrome [class~="text-white"] {color:#0f172a;}
+html[data-boss-theme="light"] .boss-employee .boss-chrome [class~="text-slate-200"] {color:#334155;}
+html[data-boss-theme="light"] .boss-employee .boss-chrome [class~="text-slate-300"] {color:#475569;}
+html[data-boss-theme="light"] .boss-employee .boss-chrome [class~="text-slate-400"] {color:#64748b;}
+html[data-boss-theme="light"] .boss-employee .boss-chrome [class~="text-teal-400"] {color:#0f766e;}
+html[data-boss-theme="light"] .boss-employee .boss-chrome [class~="text-teal-300"] {color:#0f766e;}
+html[data-boss-theme="light"] .boss-employee .boss-chrome [class~="text-emerald-400"] {color:#047857;}
+html[data-boss-theme="light"] .boss-employee .boss-chrome [class~="bg-slate-800"],
+html[data-boss-theme="light"] .boss-employee .boss-chrome [class~="bg-slate-800/70"],
+html[data-boss-theme="light"] .boss-employee .boss-chrome [class~="bg-slate-800/80"] {background-color:#f1f5f9;}
+html[data-boss-theme="light"] .boss-employee .boss-chrome [class~="bg-slate-950/40"] {background-color:#f8fafc;}
+html[data-boss-theme="light"] .boss-employee .boss-chrome [class~="bg-teal-950/60"] {background-color:#ccfbf1;}
+html[data-boss-theme="light"] .boss-employee .boss-chrome [class~="border-slate-800"],
+html[data-boss-theme="light"] .boss-employee .boss-chrome [class~="border-slate-800/80"],
+html[data-boss-theme="light"] .boss-employee .boss-chrome [class~="border-slate-700"],
+html[data-boss-theme="light"] .boss-employee .boss-chrome [class~="border-slate-700/60"] {border-color:#e2e8f0;}
+html[data-boss-theme="light"] .boss-employee .boss-chrome [class~="hover:bg-slate-800"]:hover,
+html[data-boss-theme="light"] .boss-employee .boss-chrome [class~="hover:bg-slate-800/80"]:hover {background-color:#e2e8f0;}
+html[data-boss-theme="light"] .boss-employee .boss-chrome [class~="hover:text-white"]:hover,
+html[data-boss-theme="light"] .boss-employee .boss-chrome [class~="hover:text-slate-200"]:hover {color:#0f766e;}
+
+/* Prevent overscroll flashes, and keep scrollbars aligned with the chosen mode. */
+html[data-boss-theme="dark"] {background:#0b1220;scrollbar-color:#475569 #0f172a;}
+html[data-boss-theme="light"] {background:#f8fafc;scrollbar-color:#cbd5e1 #f1f5f9;}
+html[data-boss-theme="dark"] ::-webkit-scrollbar-track {background:#0f172a;}
+html[data-boss-theme="dark"] ::-webkit-scrollbar-thumb {background:#475569;}
+html[data-boss-theme="dark"] ::-webkit-scrollbar-thumb:hover {background:#64748b;}

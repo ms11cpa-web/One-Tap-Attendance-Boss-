@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { apiRequest } from '../../api/client';
 import { PasswordInput } from '../auth/PasswordInput';
+import { NotificationCenter } from './NotificationCenter';
+import { ThemeToggle } from '../layout/ThemeToggle';
 import { ArrowLeft, Award, CheckCircle2, GraduationCap, LogOut, Send, ShieldCheck } from 'lucide-react';
 
 type Member = { id:string; ambassador_code:string; name:string; email:string; department:string; campus_name:string; is_lead:number; must_change_password:number };
@@ -40,12 +42,14 @@ export const AmbassadorPortal:React.FC = () => {
     catch(e){setError(e instanceof Error?e.message:'Submission failed');}finally{setBusy(false);}};
   const completed=data?.tasks.filter(t=>t.submission_status==='approved')||[];
   const points=completed.reduce((sum,t)=>sum+Number(t.points||0),0);
-  return <div className="min-h-screen bg-slate-950 text-white px-4 py-7 sm:px-8">
+  return <div className="boss-ambassador min-h-screen bg-slate-950 text-white px-4 py-7 sm:px-8">
     <div className="max-w-4xl mx-auto space-y-5">
       <header className="flex flex-wrap gap-3 items-center justify-between"><div className="flex gap-3 items-center"><div className="bg-teal-500 text-slate-950 w-11 h-11 rounded-xl flex items-center justify-center font-black text-2xl">B</div>
         <div><h1 className="text-xl font-black">AGN Campus Ambassador Hub</h1><p className="text-xs text-teal-300">Powered by Boss · Avarian Global Network</p></div></div>
-        {member?<button className="flex items-center gap-2 text-sm text-slate-300 border border-slate-700 px-3 py-2 rounded-xl" onClick={()=>void logout()}><LogOut size={16}/> Sign out</button>
+        <div className="flex items-center gap-2"><ThemeToggle compact />
+          {member?<button className="flex items-center gap-2 text-sm text-slate-300 border border-slate-700 px-3 py-2 rounded-xl" onClick={()=>void logout()}><LogOut size={16}/> Sign out</button>
           :<a className="flex items-center gap-2 text-sm text-slate-300" href="/"><ArrowLeft size={16}/> Office login</a>}
+        </div>
       </header>
       {error&&<p role="alert" className="rounded-xl border border-rose-900 bg-rose-950/50 text-rose-200 p-3 text-sm">{error}</p>}
       {notice&&<p role="status" className="rounded-xl border border-teal-700 bg-teal-950 text-teal-200 p-3 text-sm">{notice}</p>}
@@ -67,6 +71,7 @@ export const AmbassadorPortal:React.FC = () => {
           <button disabled={busy} className={btn}>Save new password</button>
         </form>:
         <>
+          <NotificationCenter owner="member" dark />
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3"><div className={card}><p className="text-xs text-slate-400">Assigned tasks</p><p className="text-3xl font-black mt-1">{data?.tasks.length||0}</p></div>
             <div className={card}><p className="text-xs text-slate-400">Approved contributions</p><p className="text-3xl font-black mt-1">{completed.length}</p></div>
             <div className={`${card} col-span-2 sm:col-span-1`}><p className="text-xs text-slate-400">Recognition points</p><p className="text-3xl font-black text-teal-400 mt-1">{points}</p></div></div>

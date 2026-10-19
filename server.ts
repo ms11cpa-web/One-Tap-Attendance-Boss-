@@ -7,6 +7,7 @@ import { getOrCreateNodeD1Database } from './src/server/db/node-d1.ts';
 import { handleApiRequest, getUserFromSession, REMEMBER_IDLE_MS, SHORT_SESSION_MS } from './src/server/routes/api-handler.ts';
 import { hashRecoveryCode } from './src/server/auth/recovery.ts';
 import { handleAmbassadorRequest } from './src/server/routes/ambassadors.ts';
+import { notificationApi } from './src/server/notifications/notification-core.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -37,7 +38,9 @@ async function startServer() {
       const body = req.body || {};
       const ip = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
 
-      const result = await (req.path.startsWith('/api/ambassadors/') ? handleAmbassadorRequest(
+      const result = await (req.path.startsWith('/api/ambassadors/notifications/') ? notificationApi(
+        req.method,req.path,body,{token,ambassadorToken:req.cookies?.boss_ambassador_session},db,process.env
+      ) : req.path.startsWith('/api/ambassadors/') ? handleAmbassadorRequest(
         req.method, req.path, body, { token, ambassadorToken: req.cookies?.boss_ambassador_session, ip, query }, db
       ) : handleApiRequest(
         req.method,

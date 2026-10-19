@@ -61,7 +61,7 @@ export const MobileNav: React.FC<MobileNavProps> = ({
   return (
     <>
       {/* Bottom Floating/Fixed Bar */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-slate-900/95 backdrop-blur-md border-t border-slate-800 px-2 py-1.5 flex items-center justify-around shadow-2xl safe-area-bottom">
+      <nav className="boss-chrome md:hidden fixed bottom-0 left-0 right-0 z-40 bg-slate-900/95 backdrop-blur-md border-t border-slate-800 px-2 py-1.5 flex items-center justify-around shadow-2xl safe-area-bottom">
         <button
           onClick={() => handleSelect('dashboard')}
           className={`flex flex-col items-center justify-center p-2 rounded-xl text-[10px] font-medium transition cursor-pointer ${
@@ -135,7 +135,7 @@ export const MobileNav: React.FC<MobileNavProps> = ({
       {showDrawer && (
         <div className="fixed inset-0 z-50 flex flex-col justify-end bg-slate-950/70 backdrop-blur-xs md:hidden animate-in fade-in duration-150">
           <div
-            className="w-full bg-slate-900 border-t border-slate-800 rounded-t-3xl p-6 shadow-2xl space-y-4 max-h-[80vh] overflow-y-auto"
+            className="boss-chrome w-full bg-slate-900 border-t border-slate-800 rounded-t-3xl p-6 shadow-2xl space-y-4 max-h-[80vh] overflow-y-auto"
             onClick={e => e.stopPropagation()}
           >
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">

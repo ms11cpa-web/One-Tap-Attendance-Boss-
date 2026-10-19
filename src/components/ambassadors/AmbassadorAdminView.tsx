@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { apiRequest } from '../../api/client';
 import { PasswordInput } from '../auth/PasswordInput';
+import { NotificationCenter } from './NotificationCenter';
 import { Award, CheckCircle2, GraduationCap, Loader2, RefreshCw, ShieldCheck, Video } from 'lucide-react';
 
 type Campus = { id: string; name: string; city: string };
@@ -75,6 +76,7 @@ export const AmbassadorAdminView: React.FC = () => {
         <span><strong>Ambassador portal is {data.enabled?'enabled':'disabled'}.</strong> {data.enabled?'Accounts can sign in at /ambassadors.':'Set up campuses, ambassadors and campaigns before enabling sign-in.'}</span>
         {data.is_super_admin && <button disabled={busy} className={actionStyle} onClick={()=>void post('enable',{enabled:!data.enabled},data.enabled?'Portal disabled':'Portal enabled')}>{data.enabled?'Disable ambassador login':'Enable ambassador login'}</button>}
       </div>
+      {data.enabled && <NotificationCenter owner="manager" />}
       <nav aria-label="Campus Hub sections" className="flex gap-2 overflow-x-auto pb-1">
         {(['overview','campuses','people','campaigns','reviews','performance',...(data.is_super_admin?['access']:[])] as string[]).map(n=><button key={n} onClick={()=>setTab(n as typeof tab)} className={`capitalize px-3 py-2 text-sm whitespace-nowrap rounded-xl border ${tab===n?'bg-slate-900 text-white border-slate-900':'bg-white border-slate-200'}`}>{n}</button>)}
       </nav>

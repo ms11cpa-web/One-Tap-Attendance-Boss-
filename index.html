@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" class="h-full bg-slate-50 antialiased">
+<html lang="en" class="h-full bg-slate-50 antialiased" data-boss-theme="light">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
@@ -8,7 +8,19 @@
     <meta property="og:title" content="Boss — Smart Workforce Management" />
     <meta property="og:description" content="Boss — Smart Workforce Management: Employee Attendance, Leave, Remote Work, GPS Geofencing, Holiday and Workforce Management System." />
     <meta property="og:type" content="website" />
-    <meta name="theme-color" content="#0f172a" />
+    <meta name="theme-color" content="#f8fafc" />
+    <script>
+      // Set the saved theme before React and CSS paint to avoid a white/dark flash.
+      (function () {
+        var choice = null;
+        try { choice = localStorage.getItem('boss-ui-theme-v1'); } catch (_) { /* blocked storage */ }
+        var theme = choice === 'light' || choice === 'dark' ? choice :
+          (location.pathname.replace(/\/$/, '') === '/ambassadors' ? 'dark' : 'light');
+        document.documentElement.dataset.bossTheme = theme;
+        document.documentElement.style.colorScheme = theme;
+        document.querySelector('meta[name="theme-color"]').setAttribute('content', theme === 'dark' ? '#0b1220' : '#f8fafc');
+      })();
+    </script>
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />

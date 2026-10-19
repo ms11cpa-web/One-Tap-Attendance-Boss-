@@ -44,6 +44,7 @@ export default defineConfig(() => {
           ],
         },
         workbox: {
+          importScripts: ['ambassador-push-sw.js'],
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
           // Important: live attendance submissions must never use cached responses
           navigateFallbackDenylist: [/^\/api/],

@@ -21,10 +21,11 @@ import { apiRequest } from './api/client';
 import { RefreshCw } from 'lucide-react';
 import { AmbassadorAdminView } from './components/ambassadors/AmbassadorAdminView';
 import { AmbassadorPortal } from './components/ambassadors/AmbassadorPortal';
+import { BossThemeProvider } from './theme/ThemeContext';
 
 const MainApp: React.FC = () => {
   const { user, loading } = useAuth();
-  const [currentTab, setCurrentTab] = useState<NavTab>('dashboard');
+  const [currentTab, setCurrentTab] = useState<NavTab>(() => new URLSearchParams(window.location.search).get('hub') === 'campus' ? 'ambassadors' : 'dashboard');
 
   // Global modals
   const [showLeaveModal, setShowLeaveModal] = useState(false);
@@ -53,7 +54,7 @@ const MainApp: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-white">
+      <div className="boss-employee min-h-screen bg-slate-950 flex flex-col items-center justify-center text-white">
         <div className="w-16 h-16 rounded-3xl bg-gradient-to-br from-teal-400 to-emerald-600 flex items-center justify-center font-black text-slate-950 text-3xl shadow-xl shadow-teal-500/20 mb-4 animate-bounce">
           B
         </div>
@@ -66,11 +67,11 @@ const MainApp: React.FC = () => {
   }
 
   if (!user) {
-    return <LoginView />;
+    return <div className="boss-auth"><LoginView /></div>;
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col text-slate-800 antialiased selection:bg-teal-500 selection:text-white">
+    <div className="boss-employee min-h-screen bg-slate-50 flex flex-col text-slate-800 antialiased selection:bg-teal-500 selection:text-white">
       {/* Top Navbar */}
       <Navbar />
 
@@ -179,12 +180,12 @@ const MainApp: React.FC = () => {
   );
 };
 
-export default function App() {
+function AppRoutes() {
   // Separate ambassador identity cannot enter regular office screens.
   if (window.location.pathname.replace(/\/$/, '') === '/ambassadors') return <AmbassadorPortal />;
-  return (
-    <AuthProvider>
-      <MainApp />
-    </AuthProvider>
-  );
+  return <AuthProvider><MainApp /></AuthProvider>;
+}
+
+export default function App() {
+  return <BossThemeProvider><AppRoutes /></BossThemeProvider>;
 }

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { PWAInstallButton } from '../pwa/PWAInstallButton';
+import { ThemeToggle } from '../layout/ThemeToggle';
 import { Lock, User, AlertCircle, ArrowRight, Eye, EyeOff } from 'lucide-react';
 import { BootstrapView } from './BootstrapView';
 import { apiRequest } from '../../api/client';
@@ -74,7 +75,8 @@ export const LoginView: React.FC = () => {
       <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
 
       {/* Floating PWA Install button in header */}
-      <div className="absolute top-4 right-4">
+      <div className="absolute top-4 right-4 flex items-center gap-2">
+        <ThemeToggle compact />
         <PWAInstallButton />
       </div>
 
@@ -189,7 +191,6 @@ export const LoginView: React.FC = () => {
             </button>
             <button type="button" onClick={()=>{setRecoveryMode(v=>!v);setError('');setRecoverySuccess('');}} className="text-teal-300 text-xs hover:underline block mx-auto">{recoveryMode ? 'Back to login' : 'Forgot admin password? Use recovery code'}</button>
           </form>
-          <a href="/ambassadors" className="block text-center mt-5 text-xs text-teal-300 hover:underline">Campus Ambassador Portal →</a>
 
         </div>
 

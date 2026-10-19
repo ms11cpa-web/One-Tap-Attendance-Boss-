@@ -187,6 +187,13 @@ export async function getOrCreateNodeD1Database(): Promise<NodeD1Database> {
     if (fs.existsSync(ambassadorMigration)) db.exec(fs.readFileSync(ambassadorMigration, 'utf8'));
   }
 
+  // AGN notifications v3 (additive, isolated tables).
+  const hasNotificationTables = db.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='amb_notification_preferences'");
+  if (!hasNotificationTables[0]?.values.length) {
+    const notificationMigration = path.resolve('migrations/0005_ambassador_notifications.sql');
+    if (fs.existsSync(notificationMigration)) db.exec(fs.readFileSync(notificationMigration, 'utf8'));
+  }
+
   // Seed default data if users table is empty
   await seedInitialData(nodeDb);
 

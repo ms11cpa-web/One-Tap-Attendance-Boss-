@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { PWAInstallButton } from '../pwa/PWAInstallButton';
+import { ThemeToggle } from './ThemeToggle';
 import { Clock, User as UserIcon, LogOut, KeyRound, Shield, Check, X, Building2 } from 'lucide-react';
+import { PasswordInput } from '../auth/PasswordInput';
 import { apiRequest } from '../../api/client';
 
 export const Navbar: React.FC<{ onOpenMobileMenu?: () => void }> = () => {
@@ -89,7 +91,7 @@ export const Navbar: React.FC<{ onOpenMobileMenu?: () => void }> = () => {
 
   return (
     <>
-      <header className="sticky top-0 z-40 h-16 bg-slate-900 border-b border-slate-800 text-white flex items-center justify-between px-4 sm:px-6 shadow-sm">
+      <header className="boss-chrome sticky top-0 z-40 h-16 bg-slate-900 border-b border-slate-800 text-white flex items-center justify-between px-4 sm:px-6 shadow-sm">
         {/* Brand Logo & Name */}
         <div className="flex items-center gap-3">
           <div className="flex items-center justify-center w-9 h-9 rounded-xl bg-gradient-to-br from-teal-500 to-emerald-600 text-slate-950 font-black text-lg shadow-sm">
@@ -125,6 +127,7 @@ export const Navbar: React.FC<{ onOpenMobileMenu?: () => void }> = () => {
         {/* Right actions: PWA Install + Profile */}
         <div className="flex items-center gap-3">
           <PWAInstallButton />
+          <ThemeToggle compact />
 
           {/* User profile dropdown button */}
           <div className="relative">
@@ -220,8 +223,8 @@ export const Navbar: React.FC<{ onOpenMobileMenu?: () => void }> = () => {
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
                   Current Password
                 </label>
-                <input
-                  type="password"
+                <PasswordInput
+
                   required
                   value={currentPassword}
                   onChange={e => setCurrentPassword(e.target.value)}
@@ -234,8 +237,8 @@ export const Navbar: React.FC<{ onOpenMobileMenu?: () => void }> = () => {
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
                   New Password
                 </label>
-                <input
-                  type="password"
+                <PasswordInput
+
                   required
                   value={newPassword}
                   onChange={e => setNewPassword(e.target.value)}
@@ -248,8 +251,8 @@ export const Navbar: React.FC<{ onOpenMobileMenu?: () => void }> = () => {
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
                   Confirm New Password
                 </label>
-                <input
-                  type="password"
+                <PasswordInput
+
                   required
                   value={confirmPassword}
                   onChange={e => setConfirmPassword(e.target.value)}
