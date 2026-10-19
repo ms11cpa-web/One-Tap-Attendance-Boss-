@@ -172,12 +172,19 @@ export async function getOrCreateNodeD1Database(): Promise<NodeD1Database> {
     }
   }
 
-  const holidayColumns = db.exec('PRAGMA table_info(holidays)')[0]?.values || [];
-  if (!holidayColumns.some(column => column[1] === 'end_date')) {
-    const holidayRangeMigration = path.resolve('migrations/0003_holiday_date_ranges.sql');
-    if (fs.existsSync(holidayRangeMigration)) {
-      db.exec(fs.readFileSync(holidayRangeMigration, 'utf8'));
-    }
+  // Apply holiday-range migration to existing local SQLite databases without wiping users.
+  const holidayColumns = db.exec('PRAGMA table_info(holidays)');
+  const hasHolidayEndDate = holidayColumns[0]?.values.some(v => v[1] === 'end_date');
+  if (!hasHolidayEndDate) {
+    const holidayMigration = path.resolve('migrations/0003_holiday_date_ranges.sql');
+    if (fs.existsSync(holidayMigration)) db.exec(fs.readFileSync(holidayMigration, 'utf8'));
+  }
+
+  // Separate campus ambassador tables (safe on existing office databases).
+  const hasAmbassadorTables = db.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='amb_module_settings'");
+  if (!hasAmbassadorTables[0]?.values.length) {
+    const ambassadorMigration = path.resolve('migrations/0004_campus_ambassadors.sql');
+    if (fs.existsSync(ambassadorMigration)) db.exec(fs.readFileSync(ambassadorMigration, 'utf8'));
   }
 
   // Seed default data if users table is empty

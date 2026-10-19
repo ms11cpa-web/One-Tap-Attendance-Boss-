@@ -19,6 +19,8 @@ import { ApplyRemoteModal } from './components/modals/ApplyRemoteModal';
 import { ApplyCorrectionModal } from './components/modals/ApplyCorrectionModal';
 import { apiRequest } from './api/client';
 import { RefreshCw } from 'lucide-react';
+import { AmbassadorAdminView } from './components/ambassadors/AmbassadorAdminView';
+import { AmbassadorPortal } from './components/ambassadors/AmbassadorPortal';
 
 const MainApp: React.FC = () => {
   const { user, loading } = useAuth();
@@ -134,6 +136,8 @@ const MainApp: React.FC = () => {
           {currentTab === 'settings' && <SettingsView />}
 
           {currentTab === 'audit' && <AuditLogsView />}
+
+          {currentTab === 'ambassadors' && user.role !== 'employee' && <AmbassadorAdminView />}
         </main>
       </div>
 
@@ -176,6 +180,8 @@ const MainApp: React.FC = () => {
 };
 
 export default function App() {
+  // Separate ambassador identity cannot enter regular office screens.
+  if (window.location.pathname.replace(/\/$/, '') === '/ambassadors') return <AmbassadorPortal />;
   return (
     <AuthProvider>
       <MainApp />

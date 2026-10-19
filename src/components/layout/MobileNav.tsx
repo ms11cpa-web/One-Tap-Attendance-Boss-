@@ -14,6 +14,7 @@ import {
   ShieldCheck,
   Palmtree,
   Laptop,
+  GraduationCap,
 } from 'lucide-react';
 
 interface MobileNavProps {
@@ -45,6 +46,9 @@ export const MobileNav: React.FC<MobileNavProps> = ({
     { id: 'reports' as NavTab, label: 'Reports & Excel Export', icon: FileSpreadsheet },
     ...(isAdminOrManager
       ? [{ id: 'employees' as NavTab, label: 'Employee Directory', icon: Users }]
+      : []),
+    ...(isAdminOrManager
+      ? [{ id: 'ambassadors' as NavTab, label: 'Campus Ambassador Hub', icon: GraduationCap }]
       : []),
     ...(isSuperAdmin
       ? [{ id: 'settings' as NavTab, label: 'Office Settings', icon: Settings }]

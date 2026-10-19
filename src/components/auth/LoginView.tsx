@@ -189,6 +189,7 @@ export const LoginView: React.FC = () => {
             </button>
             <button type="button" onClick={()=>{setRecoveryMode(v=>!v);setError('');setRecoverySuccess('');}} className="text-teal-300 text-xs hover:underline block mx-auto">{recoveryMode ? 'Back to login' : 'Forgot admin password? Use recovery code'}</button>
           </form>
+          <a href="/ambassadors" className="block text-center mt-5 text-xs text-teal-300 hover:underline">Campus Ambassador Portal →</a>
 
         </div>
 

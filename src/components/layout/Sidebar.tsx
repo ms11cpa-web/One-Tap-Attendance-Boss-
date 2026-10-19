@@ -12,6 +12,7 @@ import {
   ShieldCheck,
   Palmtree,
   Laptop,
+  GraduationCap,
 } from 'lucide-react';
 
 export type NavTab =
@@ -25,7 +26,8 @@ export type NavTab =
   | 'employees'
   | 'reports'
   | 'settings'
-  | 'audit';
+  | 'audit'
+  | 'ambassadors';
 
 interface SidebarProps {
   currentTab: NavTab;
@@ -105,6 +107,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
       label: 'Office Settings',
       icon: Settings,
       show: isSuperAdmin,
+    },
+    {
+      id: 'ambassadors' as NavTab,
+      label: 'Campus Ambassador Hub',
+      icon: GraduationCap,
+      show: isAdminOrManager,
     },
     {
       id: 'audit' as NavTab,

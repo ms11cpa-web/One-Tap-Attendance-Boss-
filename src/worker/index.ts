@@ -2,6 +2,7 @@ import { handleApiRequest, getUserFromSession, REMEMBER_IDLE_MS, SHORT_SESSION_M
 import { hashRecoveryCode } from '../server/auth/recovery.ts';
 import { D1DatabaseLike } from '../server/db/types.ts';
 import { handleBootstrapRequest } from './bootstrap.ts';
+import { handleAmbassadorRequest } from '../server/routes/ambassadors.ts';
 
 export interface Env {
   DB: D1DatabaseLike;
@@ -22,6 +23,7 @@ export default {
       const tokenMatch = cookieHeader.match(/boss_session=([^;]+)/);
       const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
       const token = (bearerMatch ? bearerMatch[1] : undefined) || (tokenMatch ? tokenMatch[1] : undefined);
+      const ambassadorToken = cookieHeader.match(/(?:^|;\s*)boss_ambassador_session=([^;]+)/)?.[1];
 
       const query: Record<string, string> = {};
       url.searchParams.forEach((val, key) => {
@@ -56,6 +58,8 @@ export default {
         // router, which queries the sessions table.
         if (url.pathname.startsWith('/api/bootstrap/')) {
           apiRes = await handleBootstrapRequest(request.method, url.pathname, body, env);
+        } else if (url.pathname.startsWith('/api/ambassadors/')) {
+          apiRes = await handleAmbassadorRequest(request.method, url.pathname, body, { token, ambassadorToken, ip: clientIp }, env.DB);
         } else {
           // When migrations have not been applied, explain the real problem
           // instead of returning an opaque 500 from the login handler.
@@ -98,6 +102,7 @@ export default {
       }
 
       const headers = new Headers(apiRes.headers || {});
+      if (url.pathname.startsWith('/api/ambassadors/')) headers.set('Cache-Control', 'no-store');
       if (!headers.has('Content-Type') && !apiRes.binary) {
         headers.set('Content-Type', 'application/json');
       }
