@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { PWAInstallButton } from '../pwa/PWAInstallButton';
-import { Lock, User, AlertCircle, ArrowRight } from 'lucide-react';
+import { Lock, User, AlertCircle, ArrowRight, Eye, EyeOff } from 'lucide-react';
 import { BootstrapView } from './BootstrapView';
 import { apiRequest } from '../../api/client';
 
@@ -9,6 +9,8 @@ export const LoginView: React.FC = () => {
   const { login } = useAuth();
   const [employeeId, setEmployeeId] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showRecoveryPassword, setShowRecoveryPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [rememberDevice, setRememberDevice] = useState(true);
   const [recoveryMode, setRecoveryMode] = useState(false);
@@ -125,20 +127,55 @@ export const LoginView: React.FC = () => {
               </label>
               <div className="relative">
                 <input
-                  type="password"
+                  type={showPassword ? 'text' : 'password'}
                   required
+                  autoComplete="current-password"
                   placeholder="••••••••"
                   value={password}
                   onChange={e => setPassword(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2.5 bg-slate-950 border border-slate-800 rounded-2xl text-xs text-white placeholder-slate-600 focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 transition"
+                  className="w-full pl-10 pr-12 py-2.5 bg-slate-950 border border-slate-800 rounded-2xl text-xs text-white placeholder-slate-600 focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 transition"
                 />
-                <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
+                <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(visible => !visible)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  aria-pressed={showPassword}
+                  title={showPassword ? 'Hide password' : 'Show password'}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-500 hover:text-teal-400 focus:outline-none focus:ring-2 focus:ring-teal-500 rounded-md cursor-pointer"
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
               </div>
             </div>}
 
             {recoveryMode && <>
               <label className="block text-xs text-slate-300">One-time admin recovery code<input required value={recoveryCode} onChange={e=>setRecoveryCode(e.target.value)} className="mt-1 w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2.5 text-white" /></label>
-              <label className="block text-xs text-slate-300">New password (12+ characters)<input required type="password" minLength={12} autoComplete="new-password" value={recoveryPassword} onChange={e=>setRecoveryPassword(e.target.value)} className="mt-1 w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2.5 text-white" /></label>
+              <div>
+                <label htmlFor="boss-recovery-password" className="block text-xs text-slate-300 mb-1">New password (12+ characters)</label>
+                <div className="relative">
+                  <input
+                    id="boss-recovery-password"
+                    required
+                    type={showRecoveryPassword ? 'text' : 'password'}
+                    minLength={12}
+                    autoComplete="new-password"
+                    value={recoveryPassword}
+                    onChange={e => setRecoveryPassword(e.target.value)}
+                    className="w-full rounded-xl bg-slate-950 border border-slate-700 px-3 pr-12 py-2.5 text-white"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowRecoveryPassword(visible => !visible)}
+                    aria-label={showRecoveryPassword ? 'Hide recovery password' : 'Show recovery password'}
+                    aria-pressed={showRecoveryPassword}
+                    title={showRecoveryPassword ? 'Hide recovery password' : 'Show recovery password'}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-500 hover:text-teal-400 focus:outline-none focus:ring-2 focus:ring-teal-500 rounded-md cursor-pointer"
+                  >
+                    {showRecoveryPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
             </>}
             {!recoveryMode && <label className="flex gap-2 items-center text-xs text-slate-300 cursor-pointer"><input type="checkbox" checked={rememberDevice} onChange={e=>setRememberDevice(e.target.checked)} /> Remember this device (logout after 20 days of inactivity)</label>}
 
