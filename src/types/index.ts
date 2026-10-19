@@ -144,6 +144,7 @@ export interface Holiday {
   id: string;
   name: string;
   date: string;
+  end_date?: string | null;
   is_full_day: number;
   applicable_office: string;
   description?: string;

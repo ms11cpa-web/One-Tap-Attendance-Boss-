@@ -1,0 +1,1 @@
+ALTER TABLE holidays ADD COLUMN end_date TEXT;

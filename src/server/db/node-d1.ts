@@ -172,6 +172,14 @@ export async function getOrCreateNodeD1Database(): Promise<NodeD1Database> {
     }
   }
 
+  const holidayColumns = db.exec('PRAGMA table_info(holidays)')[0]?.values || [];
+  if (!holidayColumns.some(column => column[1] === 'end_date')) {
+    const holidayRangeMigration = path.resolve('migrations/0003_holiday_date_ranges.sql');
+    if (fs.existsSync(holidayRangeMigration)) {
+      db.exec(fs.readFileSync(holidayRangeMigration, 'utf8'));
+    }
+  }
+
   // Seed default data if users table is empty
   await seedInitialData(nodeDb);
 

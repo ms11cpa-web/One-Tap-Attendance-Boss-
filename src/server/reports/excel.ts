@@ -299,7 +299,8 @@ export async function generateBossExcelWorkbook(
   // ==========================================
   const holRows = holidays.map(h => ({
     'Holiday Name': h.name,
-    'Date': h.date,
+    'Start Date': h.date,
+    'End Date': h.end_date || h.date,
     'Category': h.description || 'Public Holiday',
     'Full Day': h.is_full_day ? 'Yes' : 'Half Day',
   }));

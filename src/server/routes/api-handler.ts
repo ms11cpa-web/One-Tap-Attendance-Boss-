@@ -376,7 +376,10 @@ export async function handleApiRequest(
       .first<Record<string, unknown>>();
 
     // Check if today is a holiday
-    const holiday = await db.prepare('SELECT * FROM holidays WHERE date = ?').bind(todayDateStr).first();
+    const holiday = await db
+      .prepare('SELECT * FROM holidays WHERE date <= ? AND COALESCE(end_date, date) >= ? ORDER BY date ASC LIMIT 1')
+      .bind(todayDateStr, todayDateStr)
+      .first();
 
     // Check if today is weekly off
     const weeklyOffList: string[] = JSON.parse(String(settings.weekly_holidays || '[]'));
@@ -788,10 +791,9 @@ export async function handleApiRequest(
 
     // Fetch holidays
     const holidayList = (await db
-      .prepare('SELECT * FROM holidays WHERE date >= ? AND date <= ?')
-      .bind(startDate, endDate)
+      .prepare('SELECT * FROM holidays WHERE date <= ? AND COALESCE(end_date, date) >= ? ORDER BY date ASC')
+      .bind(endDate, startDate)
       .all<Record<string, unknown>>()).results || [];
-    const holMap = new Map<string, Record<string, unknown>>(holidayList.map(h => [String(h.date), h]));
 
     const days = [];
     const joiningDate = String(targetUser.joining_date);
@@ -805,7 +807,9 @@ export async function handleApiRequest(
       const isEmployed = dayDateStr >= joiningDate;
 
       const att = attMap.get(dayDateStr);
-      const hol = holMap.get(dayDateStr);
+      const hol = holidayList.find(h =>
+        dayDateStr >= String(h.date) && dayDateStr <= String(h.end_date || h.date)
+      );
       const isWeeklyOff = weeklyHolidays.includes(dayName);
 
       // Check leave
@@ -1678,20 +1682,29 @@ export async function handleApiRequest(
     }
 
     const name = String(body.name || '').trim();
-    const date = String(body.date || '').trim();
+    const date = String(body.start_date || body.date || '').trim();
+    const endDate = String(body.end_date || date).trim();
     const desc = body.description ? String(body.description).trim() : null;
 
     if (!name || !date) {
       return { status: 400, data: { error: 'Holiday name and date are required.' } };
     }
+    const isValidDate = (value: string) => {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+      const parsed = new Date(`${value}T00:00:00.000Z`);
+      return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+    };
+    if (!isValidDate(date) || !isValidDate(endDate) || endDate < date) {
+      return { status: 400, data: { error: 'Enter a valid holiday date range with the end date on or after the start date.' } };
+    }
 
     const holId = 'hol_' + Math.random().toString(36).substring(2, 11);
     await db
-      .prepare(`INSERT INTO holidays (id, name, date, is_full_day, applicable_office, description, created_at) VALUES (?, ?, ?, 1, 'all', ?, ?)`)
-      .bind(holId, name, date, desc, Date.now())
+      .prepare(`INSERT INTO holidays (id, name, date, end_date, is_full_day, applicable_office, description, created_at) VALUES (?, ?, ?, ?, 1, 'all', ?, ?)`)
+      .bind(holId, name, date, endDate, desc, Date.now())
       .run();
 
-    await logAudit(db, user, 'ADD_HOLIDAY', 'holiday', holId, { name, date }, context.ip);
+    await logAudit(db, user, 'ADD_HOLIDAY', 'holiday', holId, { name, date, end_date: endDate }, context.ip);
 
     return { status: 200, data: { success: true, message: 'Holiday added.' } };
   }

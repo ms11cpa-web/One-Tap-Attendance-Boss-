@@ -90,6 +90,23 @@ async function runTests() {
   assert(adminUser !== null, 'Seeded Super Admin user exists');
   assert(adminUser.role === 'super_admin', 'Admin role matches super_admin');
 
+  const testHolidayId = `test_holiday_range_${Date.now()}`;
+  await db
+    .prepare('INSERT INTO holidays (id, name, date, end_date, is_full_day, applicable_office) VALUES (?, ?, ?, ?, 1, ?)')
+    .bind(testHolidayId, 'Test range', '2099-01-10', '2099-01-12', 'all')
+    .run();
+  const holidayOnEndDate = await db
+    .prepare('SELECT id FROM holidays WHERE date <= ? AND COALESCE(end_date, date) >= ? AND id = ?')
+    .bind('2099-01-12', '2099-01-12', testHolidayId)
+    .first();
+  const holidayAfterRange = await db
+    .prepare('SELECT id FROM holidays WHERE date <= ? AND COALESCE(end_date, date) >= ? AND id = ?')
+    .bind('2099-01-13', '2099-01-13', testHolidayId)
+    .first();
+  assert(holidayOnEndDate !== null, 'Holiday lookup includes the final date in a range');
+  assert(holidayAfterRange === null, 'Holiday lookup excludes dates after the range');
+  await db.prepare('DELETE FROM holidays WHERE id = ?').bind(testHolidayId).run();
+
   console.log(`\n========================================`);
   console.log(`TEST RESULTS: ${passed} PASSED, ${failed} FAILED`);
   console.log(`========================================\n`);

@@ -37,7 +37,8 @@ export const SettingsView: React.FC = () => {
   // Holidays
   const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [newHolName, setNewHolName] = useState('');
-  const [newHolDate, setNewHolDate] = useState('');
+  const [newHolStartDate, setNewHolStartDate] = useState('');
+  const [newHolEndDate, setNewHolEndDate] = useState('');
   const [newHolDesc, setNewHolDesc] = useState('');
   const [addingHol, setAddingHol] = useState(false);
 
@@ -122,19 +123,21 @@ export const SettingsView: React.FC = () => {
 
   const handleAddHoliday = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newHolName || !newHolDate) return;
+    if (!newHolName || !newHolStartDate) return;
     setAddingHol(true);
     try {
       await apiRequest('/api/holidays', {
         method: 'POST',
         body: JSON.stringify({
           name: newHolName,
-          date: newHolDate,
+          start_date: newHolStartDate,
+          end_date: newHolEndDate || newHolStartDate,
           description: newHolDesc,
         }),
       });
       setNewHolName('');
-      setNewHolDate('');
+      setNewHolStartDate('');
+      setNewHolEndDate('');
       setNewHolDesc('');
       await fetchSettingsAndHolidays();
     } catch (err) {
@@ -407,13 +410,13 @@ export const SettingsView: React.FC = () => {
       <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm space-y-4">
         <div className="flex items-center justify-between pb-3 border-b border-slate-100">
           <div>
-            <h2 className="text-sm font-bold text-slate-900">Public & Company Holidays (2026)</h2>
+            <h2 className="text-sm font-bold text-slate-900">Public & Company Holidays</h2>
             <p className="text-xs text-slate-500">Official scheduled holidays excluded from absence counts.</p>
           </div>
         </div>
 
         {/* Add Holiday Form */}
-        <form onSubmit={handleAddHoliday} className="grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs bg-slate-50 p-4 rounded-2xl border border-slate-100">
+        <form onSubmit={handleAddHoliday} className="grid grid-cols-1 sm:grid-cols-5 gap-3 text-xs bg-slate-50 p-4 rounded-2xl border border-slate-100">
           <div>
             <label className="block font-semibold text-slate-700 mb-1">Holiday Name</label>
             <input
@@ -426,12 +429,22 @@ export const SettingsView: React.FC = () => {
             />
           </div>
           <div>
-            <label className="block font-semibold text-slate-700 mb-1">Date</label>
+            <label className="block font-semibold text-slate-700 mb-1">Start date</label>
             <input
               type="date"
               required
-              value={newHolDate}
-              onChange={e => setNewHolDate(e.target.value)}
+              value={newHolStartDate}
+              onChange={e => setNewHolStartDate(e.target.value)}
+              className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:border-teal-500 bg-white"
+            />
+          </div>
+          <div>
+            <label className="block font-semibold text-slate-700 mb-1">End date (optional)</label>
+            <input
+              type="date"
+              min={newHolStartDate || undefined}
+              value={newHolEndDate}
+              onChange={e => setNewHolEndDate(e.target.value)}
               className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:border-teal-500 bg-white"
             />
           </div>
@@ -462,7 +475,9 @@ export const SettingsView: React.FC = () => {
             <div key={h.id} className="py-2.5 flex items-center justify-between">
               <div>
                 <span className="font-bold text-slate-900">{h.name}</span>
-                <span className="text-slate-400 font-mono text-[11px] ml-2">({h.date})</span>
+                <span className="text-slate-400 font-mono text-[11px] ml-2">
+                  ({h.date}{h.end_date && h.end_date !== h.date ? ` to ${h.end_date}` : ''})
+                </span>
                 {h.description && <span className="text-slate-500 text-[11px] ml-2">• {h.description}</span>}
               </div>
               <button
