@@ -9,6 +9,8 @@ type Campaign = { id: string; title: string; due_date: string; points: number; a
 type Submission = { id: string; ambassador_name: string; ambassador_email: string; campaign_title: string; proof_url: string; notes: string; status: string; review_note: string; submitted_at: number; points: number };
 type Leader = { id: string; name: string; ambassador_code: string; campus_name: string; points: number; approved: number; assigned: number; quality_average: number|null; on_time: number };
 type Manager = { id: string; employee_id: string; name: string };
+type MonthlyRow = { id:string; name:string; ambassador_code:string; campus_name:string; status:string; eligible:number; approved:number; on_time:number; approved_points:number; quality_average:number|null; active_weeks:number; assigned_weeks:number; completion_pct:number; quality_pct:number; timeliness_pct:number; consistency_pct:number; score:number|null; rating:string };
+type MonthlyReport = {month:string;as_of:string;complete:boolean;weights:{completion:number;quality:number;timeliness:number;consistency:number};winner: {id:string;name:string;ambassador_code:string;campus_name:string;score:number}|null;leaderboard:MonthlyRow[]};
 type AdminData = { enabled: boolean; is_super_admin: boolean; campuses: Campus[]; people: Person[]; campaigns: Campaign[]; submissions: Submission[]; leaderboard: Leader[]; managers: Manager[] };
 type PostPath = 'enable'|'campuses'|'people'|'people/update'|'people/reset-password'|'campaigns'|'reviews'|'managers';
 const today = () => new Intl.DateTimeFormat('en-CA', { year:'numeric', month:'2-digit', day:'2-digit', timeZone:'Asia/Dhaka' }).format(new Date());
@@ -23,12 +25,16 @@ export const AmbassadorAdminView: React.FC = () => {
   const [busy,setBusy] = useState(false);
   const [error,setError] = useState('');
   const [notice,setNotice] = useState('');
-  const [tab,setTab] = useState<'overview'|'campuses'|'people'|'campaigns'|'reviews'|'access'>('overview');
+  const [tab,setTab] = useState<'overview'|'campuses'|'people'|'campaigns'|'reviews'|'performance'|'access'>('overview');
   const [campusName,setCampusName] = useState(''); const [campusCity,setCampusCity] = useState('');
   const [person,setPerson] = useState({ ambassador_code:'',name:'',email:'',department:'',campus_id:'',initial_password:'',is_lead:false });
   const [campaign,setCampaign] = useState({ title:'',instructions:'',content_type:'share',target_scope:'all',target_id:'',points:5,due_date:today() });
   const [reviewNotes,setReviewNotes] = useState<Record<string,string>>({});
   const [scores,setScores] = useState<Record<string,number>>({});
+  const [performanceMonth,setPerformanceMonth] = useState(today().slice(0,7));
+  const [performance,setPerformance] = useState<MonthlyReport|null>(null);
+  const [performanceBusy,setPerformanceBusy] = useState(false);
+  const [performanceError,setPerformanceError] = useState('');
   const [managerCode,setManagerCode] = useState('');
   const [resetPersonId,setResetPersonId] = useState(''); const [resetPassword,setResetPassword] = useState('');
 
@@ -37,6 +43,13 @@ export const AmbassadorAdminView: React.FC = () => {
     catch(e) { setError(e instanceof Error ? e.message:'Could not load Campus Hub'); }
   },[]);
   useEffect(()=>{ void refresh(); },[refresh]);
+  const refreshPerformance=useCallback(async()=>{
+    setPerformanceBusy(true);setPerformanceError('');
+    try {setPerformance(await apiRequest<MonthlyReport>(`/api/ambassadors/admin/performance?month=${encodeURIComponent(performanceMonth)}`));}
+    catch(e) {setPerformance(null);setPerformanceError(e instanceof Error?e.message:'Cannot load monthly ratings');}
+    finally {setPerformanceBusy(false);}
+  },[performanceMonth]);
+  useEffect(()=>{if(tab==='performance') void refreshPerformance();},[tab,refreshPerformance]);
   const post = async (endpoint:PostPath, payload: Record<string,unknown>, success:string) => {
     setBusy(true);setError('');setNotice('');
     try {
@@ -53,7 +66,7 @@ export const AmbassadorAdminView: React.FC = () => {
     <div className="flex flex-wrap justify-between gap-3 items-center">
       <div><div className="flex gap-2 items-center text-teal-700"><GraduationCap size={24}/><h1 className="text-2xl font-black text-slate-900">AGN Campus Ambassador Hub</h1></div>
         <p className="text-sm text-slate-500 mt-1">Campus profiles, campaigns, approved contributions and recognition. Separate from office attendance.</p></div>
-      <button className="flex items-center gap-2 border rounded-lg px-3 py-2 text-sm bg-white" onClick={()=>void refresh()}><RefreshCw size={16}/> Refresh</button>
+      <button className="flex items-center gap-2 border rounded-lg px-3 py-2 text-sm bg-white" onClick={()=>{void refresh();if(tab==='performance')void refreshPerformance();}}><RefreshCw size={16}/> Refresh</button>
     </div>
     {error && <div role="alert" className="bg-rose-50 text-rose-800 border border-rose-200 rounded-xl p-3 text-sm">{error}</div>}
     {notice && <div role="status" className="bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-xl p-3 text-sm">{notice}</div>}
@@ -63,7 +76,7 @@ export const AmbassadorAdminView: React.FC = () => {
         {data.is_super_admin && <button disabled={busy} className={actionStyle} onClick={()=>void post('enable',{enabled:!data.enabled},data.enabled?'Portal disabled':'Portal enabled')}>{data.enabled?'Disable ambassador login':'Enable ambassador login'}</button>}
       </div>
       <nav aria-label="Campus Hub sections" className="flex gap-2 overflow-x-auto pb-1">
-        {(['overview','campuses','people','campaigns','reviews',...(data.is_super_admin?['access']:[])] as string[]).map(n=><button key={n} onClick={()=>setTab(n as typeof tab)} className={`capitalize px-3 py-2 text-sm whitespace-nowrap rounded-xl border ${tab===n?'bg-slate-900 text-white border-slate-900':'bg-white border-slate-200'}`}>{n}</button>)}
+        {(['overview','campuses','people','campaigns','reviews','performance',...(data.is_super_admin?['access']:[])] as string[]).map(n=><button key={n} onClick={()=>setTab(n as typeof tab)} className={`capitalize px-3 py-2 text-sm whitespace-nowrap rounded-xl border ${tab===n?'bg-slate-900 text-white border-slate-900':'bg-white border-slate-200'}`}>{n}</button>)}
       </nav>
       {tab==='overview' && <div className="space-y-5">
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">{[
@@ -132,6 +145,37 @@ export const AmbassadorAdminView: React.FC = () => {
             <button disabled={busy} className="border border-rose-300 rounded-xl px-3 py-2 text-rose-700 text-sm" onClick={()=>void post('reviews',{submission_id:s.id,decision:'rejected',review_note:reviewNotes[s.id]||''},'Work rejected')}>Reject</button></div>
         </div>)}
         <div className={panel}><h3 className="font-bold">Recent reviews</h3>{data.submissions.filter(s=>s.status!=='submitted').slice(0,15).map(s=><p key={s.id} className="border-b py-2 text-sm">{s.ambassador_name} — {s.campaign_title} · <strong>{s.status}</strong></p>)}</div>
+      </div>}
+      {tab==='performance' && <div className="space-y-4">
+        <div className={panel}>
+          <div className="flex flex-wrap gap-3 items-end justify-between">
+            <div><h2 className="font-bold text-lg flex items-center gap-2"><Award size={18}/> Monthly Performance Ratings</h2>
+              <p className="text-sm text-slate-500 mt-1">Server-calculated results based on deadlines in the selected month, with dates passed before today (Dhaka time).</p></div>
+            <label className={labelStyle}>Report month
+              <input type="month" min="2000-01" max={today().slice(0,7)} className={`${inputStyle} mt-1`} value={performanceMonth} onChange={e=>setPerformanceMonth(e.target.value)}/>
+            </label>
+          </div>
+          <p className="text-xs text-slate-500">Completion 40% · Content quality 30% · On-time delivery 15% · Weekly consistency 15%. Quality is average approved rating / 5. Consistency counts weeks with approved work among weeks with due tasks.</p>
+          <p className="text-xs text-slate-500">Ratings: Excellent ≥85 · Good ≥70 · Satisfactory ≥50 · Needs Improvement &lt;50. No eligible assignments means Not rated.</p>
+          <p className="text-xs text-amber-700">This is a live report, not a locked certificate or payment record. Reviews added later can update historical rankings. The current month is provisional.</p>
+          {performanceError&&<p role="alert" className="text-rose-700 text-sm">{performanceError}</p>}
+          {performanceBusy?<p className="text-sm text-slate-500 flex gap-2 items-center"><Loader2 size={16} className="animate-spin"/> Loading monthly ratings…</p>:performance&&<>
+            <div className="bg-teal-50 border border-teal-200 rounded-xl p-4">
+              <p className="text-sm font-semibold text-teal-900">{performance.complete?'Ambassador of the Month — top eligible performer':'Current frontrunner — provisional'}</p>
+              {performance.winner?<p className="mt-1 font-bold text-lg">{performance.winner.name} <span className="text-sm font-normal text-teal-800">({performance.winner.campus_name}) · {performance.winner.score}/100</span></p>
+                :<p className="text-sm text-teal-800 mt-1">No eligible winner yet. Requires at least two approved tasks, two eligible assignments, and a score of 70 or higher.</p>}
+            </div>
+            <p className="text-xs text-slate-500">Reporting through: {performance.as_of}. {performance.complete?'Selected month has ended.':'Current period has not finished.'} All ambassador account types use the same rating rules; points remain non-monetary.</p>
+            <div className="overflow-x-auto"><table className="w-full text-sm"><thead className="text-left text-slate-600"><tr className="border-b">
+              <th className="py-2 pr-3">Rank / Ambassador</th><th className="pr-3">Campus</th><th className="pr-3">Approved / Eligible</th><th className="pr-3">Quality</th><th className="pr-3">On time</th><th className="pr-3">Consistent weeks</th><th className="pr-3">Score</th><th>Rating</th>
+              </tr></thead><tbody>{performance.leaderboard.map((p,i)=><tr key={p.id} className="border-b">
+                <td className="py-2 pr-3"><strong>{p.score===null?'—':i+1}. {p.name}</strong><span className="block text-xs text-slate-500">{p.ambassador_code}</span></td>
+                <td className="pr-3">{p.campus_name}</td><td className="pr-3">{p.approved} / {p.eligible}</td><td className="pr-3">{p.quality_average??'—'} / 5</td><td className="pr-3">{p.on_time}</td>
+                <td className="pr-3">{p.active_weeks}/{p.assigned_weeks}</td><td className="font-bold pr-3">{p.score===null?'—':`${p.score}/100`}</td><td>{p.rating}</td>
+              </tr>)}</tbody></table></div>
+            {!performance.leaderboard.length&&<p className="text-slate-500 text-sm">No ambassador profiles found.</p>}
+          </>}
+        </div>
       </div>}
       {tab==='access' && data.is_super_admin && <div className="grid lg:grid-cols-2 gap-4"><form className={panel} onSubmit={async e=>{e.preventDefault();if(await post('managers',{employee_id:managerCode},'Programme Manager access granted'))setManagerCode('');}}><h2 className="font-bold flex gap-2 items-center"><ShieldCheck size={18}/> Assign programme manager</h2>
         <p className="text-xs text-slate-500">This grants only Campus Hub administration. Office roles and GPS attendance are unchanged. Enter an existing manager/admin Employee ID.</p>

@@ -7,10 +7,11 @@ import { getUserFromSession, logAudit } from './api-handler.ts';
 import { hashPassword, verifyPassword, generateSessionToken } from '../auth/crypto.ts';
 import { hashRecoveryCode } from '../auth/recovery.ts';
 import { getDhakaDateString } from '../utils/time.ts';
+import { calculateMonthlyPerformance, monthWindow, winnerEligible, type EligibleTask } from '../utils/ambassador-performance.ts';
 
 type Data = Record<string, unknown>;
 type Reply = { status: number; data?: unknown; headers?: Record<string, string> };
-type Context = { token?: string; ambassadorToken?: string; ip?: string };
+type Context = { token?: string; ambassadorToken?: string; ip?: string; query?: Record<string, string> };
 const error = (status: number, message: string): Reply => ({ status, data: { error: message } });
 const ok = (data: unknown): Reply => ({ status: 200, data });
 const uid = () => crypto.randomUUID();
@@ -91,6 +92,37 @@ export async function handleAmbassadorRequest(
         LEFT JOIN amb_submissions s ON s.assignment_id=a.id GROUP BY p.id ORDER BY points DESC,p.name LIMIT 100`);
       const managers = superAdmin ? await getRows(db, `SELECT u.id,u.employee_id,u.name FROM amb_program_managers m JOIN users u ON u.id=m.user_id ORDER BY u.name`) : [];
       return ok({ enabled, is_super_admin: superAdmin, campuses, people, campaigns, submissions, leaderboard, managers });
+    }
+    if (path === '/api/ambassadors/admin/performance' && verb === 'GET') {
+      // Explicit manager-only route; no client-calculated or client-supplied scores.
+      const month = String(ctx.query?.month ?? getDhakaDateString().slice(0,7));
+      let window: ReturnType<typeof monthWindow>;
+      try { window = monthWindow(month, getDhakaDateString()); }
+      catch { return error(400,'Select a valid YYYY-MM month (2000–2100).'); }
+      const members = await getRows<{id:string;ambassador_code:string;name:string;campus_name:string;status:string}>(db,
+        `SELECT p.id,p.ambassador_code,p.name,cp.name AS campus_name,p.status
+         FROM amb_people p JOIN amb_campuses cp ON cp.id=p.campus_id ORDER BY p.name,p.id`);
+      const allTasks = window.cutoff >= window.start ? await getRows<EligibleTask & {ambassador_id:string}>(db,
+        `SELECT a.ambassador_id,c.due_date,c.points,s.status,s.quality_score,s.submitted_at
+         FROM amb_assignments a JOIN amb_campaigns c ON c.id=a.campaign_id
+         LEFT JOIN amb_submissions s ON s.assignment_id=a.id
+         WHERE c.due_date >= ? AND c.due_date <= ?`, window.start,window.cutoff) : [];
+      const tasksByOwner = new Map<string,EligibleTask[]>();
+      for (const task of allTasks) {
+        const items=tasksByOwner.get(task.ambassador_id)||[];
+        items.push(task);
+        tasksByOwner.set(task.ambassador_id,items);
+      }
+      const results = members.map(person => ({ ...person,
+        ...calculateMonthlyPerformance(tasksByOwner.get(person.id)||[]) }));
+      results.sort((a,b)=> (b.score??-1)-(a.score??-1) || b.approved-a.approved ||
+        (b.quality_average??0)-(a.quality_average??0) || a.name.localeCompare(b.name));
+      const winner = results.find(r=>winnerEligible(r)) || null;
+      return ok({ month,as_of:window.cutoff,complete:window.complete,
+        weights:{completion:40,quality:30,timeliness:15,consistency:15},
+        winner: winner ? {id:winner.id,name:winner.name,ambassador_code:winner.ambassador_code,
+          campus_name:winner.campus_name,score:winner.score} : null,
+        leaderboard:results });
     }
     if (path === '/api/ambassadors/admin/enable' && verb === 'POST') {
       if (!superAdmin) return error(403, 'Only the Super Admin can enable the Hub.');
@@ -237,7 +269,14 @@ export async function handleAmbassadorRequest(
       FROM amb_assignments a JOIN amb_people p ON p.id=a.ambassador_id
       LEFT JOIN amb_submissions s ON s.assignment_id=a.id WHERE p.campus_id=?`).bind(member.campus_id).first() : null;
     const today = getDhakaDateString();
-    return ok({ tasks, campus_progress: campusProgress, today });
+    const period=monthWindow(today.slice(0,7),today);
+    const performanceTasks = period.cutoff >= period.start ? await getRows<EligibleTask>(db,
+      `SELECT c.due_date,c.points,s.status,s.quality_score,s.submitted_at
+       FROM amb_assignments a JOIN amb_campaigns c ON c.id=a.campaign_id
+       LEFT JOIN amb_submissions s ON s.assignment_id=a.id
+       WHERE a.ambassador_id=? AND c.due_date >= ? AND c.due_date <= ?`,member.id,period.start,period.cutoff) : [];
+    return ok({ tasks, campus_progress: campusProgress, today,
+      monthly_performance: {month:today.slice(0,7), ...calculateMonthlyPerformance(performanceTasks)} });
   }
   if (path === '/api/ambassadors/submit' && verb === 'POST') {
     const assignmentId=input(body.assignment_id,90),url=input(body.proof_url,1501),notes=input(body.notes,1000);

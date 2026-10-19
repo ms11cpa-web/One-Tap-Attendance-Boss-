@@ -38,7 +38,7 @@ async function startServer() {
       const ip = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
 
       const result = await (req.path.startsWith('/api/ambassadors/') ? handleAmbassadorRequest(
-        req.method, req.path, body, { token, ambassadorToken: req.cookies?.boss_ambassador_session, ip }, db
+        req.method, req.path, body, { token, ambassadorToken: req.cookies?.boss_ambassador_session, ip, query }, db
       ) : handleApiRequest(
         req.method,
         req.path,

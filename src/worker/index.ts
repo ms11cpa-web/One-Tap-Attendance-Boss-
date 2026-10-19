@@ -59,7 +59,7 @@ export default {
         if (url.pathname.startsWith('/api/bootstrap/')) {
           apiRes = await handleBootstrapRequest(request.method, url.pathname, body, env);
         } else if (url.pathname.startsWith('/api/ambassadors/')) {
-          apiRes = await handleAmbassadorRequest(request.method, url.pathname, body, { token, ambassadorToken, ip: clientIp }, env.DB);
+          apiRes = await handleAmbassadorRequest(request.method, url.pathname, body, { token, ambassadorToken, ip: clientIp, query }, env.DB);
         } else {
           // When migrations have not been applied, explain the real problem
           // instead of returning an opaque 500 from the login handler.

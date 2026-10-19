@@ -5,7 +5,8 @@ import { ArrowLeft, Award, CheckCircle2, GraduationCap, LogOut, Send, ShieldChec
 
 type Member = { id:string; ambassador_code:string; name:string; email:string; department:string; campus_name:string; is_lead:number; must_change_password:number };
 type Task = { assignment_id:string; title:string; instructions:string; content_type:string; points:number; due_date:string; campaign_status:string; submission_id:string|null; submission_status:string|null; proof_url:string|null; review_note:string|null; quality_score:number|null; submitted_at:number|null };
-type TasksData = { tasks:Task[]; today:string; campus_progress:{assigned:number;approved:number}|null };
+type PersonalPerformance = { month:string;eligible:number;approved:number;score:number|null;rating:string;completion_pct:number;quality_average:number|null;timeliness_pct:number;consistency_pct:number };
+type TasksData = { tasks:Task[]; today:string; campus_progress:{assigned:number;approved:number}|null; monthly_performance?: PersonalPerformance };
 const inp='w-full bg-slate-950 text-white rounded-xl border border-slate-700 px-3 py-2.5 text-sm focus:ring-2 focus:ring-teal-500';
 const btn='rounded-xl bg-teal-500 text-slate-950 font-bold px-4 py-2.5 text-sm disabled:opacity-40';
 const card='bg-slate-900 border border-slate-800 rounded-2xl p-5';
@@ -69,6 +70,13 @@ export const AmbassadorPortal:React.FC = () => {
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3"><div className={card}><p className="text-xs text-slate-400">Assigned tasks</p><p className="text-3xl font-black mt-1">{data?.tasks.length||0}</p></div>
             <div className={card}><p className="text-xs text-slate-400">Approved contributions</p><p className="text-3xl font-black mt-1">{completed.length}</p></div>
             <div className={`${card} col-span-2 sm:col-span-1`}><p className="text-xs text-slate-400">Recognition points</p><p className="text-3xl font-black text-teal-400 mt-1">{points}</p></div></div>
+          {data?.monthly_performance&&<div className={card}>
+            <h2 className="font-bold text-base flex gap-2 items-center"><Award size={17} className="text-teal-400"/> Your monthly performance — {data.monthly_performance.month}</h2>
+            <div className="flex flex-wrap gap-4 items-end mt-3"><p className="text-3xl font-black text-teal-300">{data.monthly_performance.score===null?'Not rated':`${data.monthly_performance.score}/100`}</p>
+              <p className="text-sm text-slate-300">{data.monthly_performance.rating}</p></div>
+            <p className="text-xs text-slate-400 mt-2">{data.monthly_performance.approved}/{data.monthly_performance.eligible} eligible tasks approved · Quality {data.monthly_performance.quality_average??'—'}/5 · On-time {data.monthly_performance.timeliness_pct}% · Consistency {data.monthly_performance.consistency_pct}%</p>
+            <p className="text-xs text-slate-500 mt-2">Provisional: counts deadline days before today in Dhaka, and may change when managers review work. No assigned tasks due yet means Not rated.</p>
+          </div>}
           {Number(member.is_lead)===1&&data?.campus_progress&&<div className={card}><p className="font-semibold text-sm">Campus coordination progress</p><p className="text-xs text-slate-400">Campus-wide aggregate: {data.campus_progress.approved} approved of {data.campus_progress.assigned} assigned. No private submissions are shared.</p></div>}
           <h2 className="text-lg font-bold flex gap-2 items-center"><Award className="text-teal-400"/> Your assignments</h2>
           {data?.tasks.length===0&&<div className={card}><p className="text-slate-400 text-sm">No tasks assigned yet. Check back after your programme manager publishes a campaign.</p></div>}
