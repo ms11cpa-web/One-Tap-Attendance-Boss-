@@ -9,3 +9,5 @@ coverage/
 
 # Local demo database must never be pushed to the public repository
 /data/*.sqlite
+
+.wrangler/
