@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { PWAInstallButton } from '../pwa/PWAInstallButton';
 import { ThemeToggle } from '../layout/ThemeToggle';
-import { Lock, User, AlertCircle, ArrowRight, Eye, EyeOff } from 'lucide-react';
+import { Lock, User, AlertCircle, ArrowRight, Eye, EyeOff, GraduationCap } from 'lucide-react';
 import { BootstrapView } from './BootstrapView';
 import { apiRequest } from '../../api/client';
 
@@ -191,6 +191,24 @@ export const LoginView: React.FC = () => {
             </button>
             <button type="button" onClick={()=>{setRecoveryMode(v=>!v);setError('');setRecoverySuccess('');}} className="text-teal-300 text-xs hover:underline block mx-auto">{recoveryMode ? 'Back to login' : 'Forgot admin password? Use recovery code'}</button>
           </form>
+
+          {/* Separate ambassador sign-in: never submits the employee form. */}
+          {!recoveryMode && (
+            <div className="mt-6 pt-5 border-t border-slate-800">
+              <p className="text-center text-xs text-slate-400 mb-3">
+                Are you an AGN Campus Ambassador?
+              </p>
+              <a
+                href="/ambassadors"
+                aria-label="Go to Campus Ambassador Login"
+                className="w-full flex items-center justify-center gap-3 rounded-2xl border border-slate-700 bg-slate-800 px-4 py-3 text-teal-300 text-xs sm:text-sm font-bold transition hover:border-teal-500 hover:bg-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900"
+              >
+                <GraduationCap className="h-5 w-5 shrink-0" aria-hidden="true" />
+                <span>Campus Ambassador Login</span>
+                <ArrowRight className="h-4 w-4 shrink-0" aria-hidden="true" />
+              </a>
+            </div>
+          )}
 
         </div>
 
