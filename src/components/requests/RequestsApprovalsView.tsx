@@ -18,6 +18,35 @@ import {
   XCircle,
 } from 'lucide-react';
 
+interface RequestNoteDetails {
+  heading: string;
+  employee: string;
+  date: string;
+  text: string;
+}
+
+// Keep the table compact while always providing access to the complete note.
+const RequestNotePreview: React.FC<{ text?: string | null; onView: () => void }> = ({ text, onView }) => {
+  const hasText = Boolean(text?.trim());
+  return (
+    <div className="flex w-48 max-w-full items-center gap-2 sm:w-64">
+      <span dir="auto" className="min-w-0 flex-1 truncate text-slate-600">
+        {hasText ? text : <span className="italic text-slate-400">None</span>}
+      </span>
+      {hasText && (
+        <button
+          type="button"
+          onClick={onView}
+          className="shrink-0 rounded-lg border border-teal-200 bg-teal-50 px-2.5 py-1.5 font-semibold text-teal-800 hover:bg-teal-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500 cursor-pointer"
+          aria-label="View full request reason"
+        >
+          View
+        </button>
+      )}
+    </div>
+  );
+};
+
 interface RequestsApprovalsViewProps {
   initialSubTab?: 'leave' | 'remote' | 'corrections';
   onOpenLeaveModal?: () => void;
@@ -47,6 +76,18 @@ export const RequestsApprovalsView: React.FC<RequestsApprovalsViewProps> = ({
   } | null>(null);
   const [actionReason, setActionReason] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
+  const [selectedNote, setSelectedNote] = useState<RequestNoteDetails | null>(null);
+
+  // The reader can be dismissed with Escape, just like a conventional dialog.
+  useEffect(() => {
+    if (!selectedNote) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setSelectedNote(null);
+    };
+    document.addEventListener('keydown', closeOnEscape);
+    return () => document.removeEventListener('keydown', closeOnEscape);
+  }, [selectedNote]);
+
 
   const isAdminOrManager = user?.role !== 'employee';
 
@@ -270,8 +311,16 @@ export const RequestsApprovalsView: React.FC<RequestsApprovalsViewProps> = ({
                             ) : null}
                           </td>
 
-                          <td className="py-3.5 px-4 max-w-xs text-slate-600 truncate">
-                            {item.reason || <span className="text-slate-400 italic">None</span>}
+                          <td className="py-3.5 px-4">
+                            <RequestNotePreview
+                              text={item.reason}
+                              onView={() => setSelectedNote({
+                                heading: "Leave request reason",
+                                employee: item.employee_name || item.employee_id || 'Employee',
+                                date: item.start_date === item.end_date ? item.start_date : `${item.start_date} to ${item.end_date}`,
+                                text: item.reason || '',
+                              })}
+                            />
                           </td>
 
                           <td className="py-3.5 px-4 whitespace-nowrap">
@@ -372,8 +421,16 @@ export const RequestsApprovalsView: React.FC<RequestsApprovalsViewProps> = ({
                             {item.request_date}
                           </td>
 
-                          <td className="py-3.5 px-4 max-w-xs text-slate-600 truncate">
-                            {item.reason || <span className="text-slate-400 italic">None</span>}
+                          <td className="py-3.5 px-4">
+                            <RequestNotePreview
+                              text={item.reason}
+                              onView={() => setSelectedNote({
+                                heading: "Remote work reason",
+                                employee: item.employee_name || item.employee_id || 'Employee',
+                                date: item.request_date,
+                                text: item.reason || '',
+                              })}
+                            />
                           </td>
 
                           <td className="py-3.5 px-4 whitespace-nowrap">
@@ -485,8 +542,16 @@ export const RequestsApprovalsView: React.FC<RequestsApprovalsViewProps> = ({
                             {item.requested_out_time ? formatTime12FromHHMM(item.requested_out_time) : '—'}
                           </td>
 
-                          <td className="py-3.5 px-4 max-w-xs text-slate-600 truncate">
-                            {item.explanation}
+                          <td className="py-3.5 px-4">
+                            <RequestNotePreview
+                              text={item.explanation}
+                              onView={() => setSelectedNote({
+                                heading: 'Attendance correction explanation',
+                                employee: item.employee_name || item.employee_id || 'Employee',
+                                date: item.attendance_date,
+                                text: item.explanation,
+                              })}
+                            />
                           </td>
 
                           <td className="py-3.5 px-4 whitespace-nowrap">
@@ -553,6 +618,57 @@ export const RequestsApprovalsView: React.FC<RequestsApprovalsViewProps> = ({
           </>
         )}
       </div>
+
+      {/* Read-only full request reason / explanation dialog */}
+      {selectedNote && (
+        <div
+          className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setSelectedNote(null);
+          }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="boss-request-note-title"
+            className="flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white text-slate-900 shadow-2xl"
+          >
+            <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4">
+              <div>
+                <h2 id="boss-request-note-title" className="text-base font-bold text-slate-900">
+                  {selectedNote.heading}
+                </h2>
+                <p className="mt-1 text-xs text-slate-500">
+                  {selectedNote.employee} • {selectedNote.date}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedNote(null)}
+                aria-label="Close full reason"
+                className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-500 cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
+              <div dir="auto" className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] rounded-xl bg-slate-50 p-4 text-sm leading-7 text-slate-800 select-text">
+                {selectedNote.text}
+              </div>
+            </div>
+            <div className="flex justify-end border-t border-slate-200 px-5 py-3">
+              <button
+                type="button"
+                autoFocus
+                onClick={() => setSelectedNote(null)}
+                className="rounded-xl bg-teal-600 px-5 py-2 text-xs font-bold text-white hover:bg-teal-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600 cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
 
       {/* Action Confirmation Modal */}
       {selectedActionItem && (
