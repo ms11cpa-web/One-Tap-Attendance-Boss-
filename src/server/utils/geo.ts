@@ -44,7 +44,9 @@ export function verifyLocationGeofence(
     typeof userLat !== 'number' ||
     typeof userLon !== 'number' ||
     isNaN(userLat) ||
-    isNaN(userLon)
+    !Number.isFinite(userLon) || Math.abs(userLat) > 90 || Math.abs(userLon) > 180 ||
+    !Number.isFinite(officeLat) || !Number.isFinite(officeLon) ||
+    Math.abs(officeLat) > 90 || Math.abs(officeLon) > 180
   ) {
     return {
       allowed: false,
@@ -53,8 +55,8 @@ export function verifyLocationGeofence(
     };
   }
 
-  // Check GPS reading accuracy
-  if (accuracyMeters > maxAccuracyThresholdMeters) {
+  // Reject missing, zero, negative and non-finite accuracy readings.
+  if (!Number.isFinite(accuracyMeters) || accuracyMeters <= 0 || accuracyMeters > maxAccuracyThresholdMeters) {
     return {
       allowed: false,
       distanceMeters: 0,

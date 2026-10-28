@@ -16,11 +16,19 @@ export async function generateBossExcelWorkbook(
   const wb = XLSX.utils.book_new();
 
   // 1. Fetch data
-  const usersRes = await db
-    .prepare('SELECT id, employee_id, name, email, role, team, designation, status, joining_date FROM users ORDER BY employee_id')
-    .all<Record<string, unknown>>();
-  const users = usersRes.results || [];
+  let employeeSql = 'SELECT id, employee_id, name, email, role, team, designation, status, joining_date FROM users WHERE 1=1';
+  const employeeParams: unknown[] = [];
+  if (filters.userId) { employeeSql += ' AND id=?'; employeeParams.push(filters.userId); }
+  if (filters.team) { employeeSql += ' AND team=?'; employeeParams.push(filters.team); }
+  employeeSql += ' ORDER BY employee_id COLLATE NOCASE';
+  const usersRes = await db.prepare(employeeSql).bind(...employeeParams).all<Record<string, unknown>>();
+  const users = (usersRes.results || []).sort((a,b)=>String(a.employee_id).localeCompare(String(b.employee_id),'en',{numeric:true,sensitivity:'base'}));
   const userMap = new Map<string, Record<string, unknown>>(users.map(u => [String(u.id), u]));
+
+  const visibleIds = new Set(users.map(u => String(u.id)));
+  const settings = await db.prepare("SELECT work_start_time, work_end_time FROM office_settings WHERE id='default'").first<{work_start_time:string;work_end_time:string}>();
+  const scheduledStart = settings?.work_start_time || '11:00';
+  const scheduledEnd = settings?.work_end_time || '19:00';
 
   // Attendance records query
   let attQuery = 'SELECT * FROM attendance_records WHERE 1=1';
@@ -40,7 +48,7 @@ export async function generateBossExcelWorkbook(
   attQuery += ' ORDER BY attendance_date DESC, in_time ASC';
 
   const attRes = await db.prepare(attQuery).bind(...attParams).all<Record<string, unknown>>();
-  const attendanceRecords = attRes.results || [];
+  const attendanceRecords = (attRes.results || []).filter(r => visibleIds.has(String(r.user_id)));
 
   // Leave records query
   let leaveQuery = `
@@ -52,16 +60,16 @@ export async function generateBossExcelWorkbook(
   `;
   const leaveParams: unknown[] = [];
   if (filters.startDate) {
-    leaveQuery += ' AND lr.start_date >= ?';
+    leaveQuery += ' AND lr.end_date >= ?';
     leaveParams.push(filters.startDate);
   }
   if (filters.endDate) {
-    leaveQuery += ' AND lr.end_date <= ?';
+    leaveQuery += ' AND lr.start_date <= ?';
     leaveParams.push(filters.endDate);
   }
   leaveQuery += ' ORDER BY lr.created_at DESC';
   const leaveRes = await db.prepare(leaveQuery).bind(...leaveParams).all<Record<string, unknown>>();
-  const leaveRecords = leaveRes.results || [];
+  const leaveRecords = (leaveRes.results || []).filter(r => visibleIds.has(String(r.user_id)));
 
   // Remote records query
   let remoteQuery = `
@@ -71,7 +79,7 @@ export async function generateBossExcelWorkbook(
     ORDER BY rr.request_date DESC
   `;
   const remoteRes = await db.prepare(remoteQuery).all<Record<string, unknown>>();
-  const remoteRecords = remoteRes.results || [];
+  const remoteRecords = (remoteRes.results || []).filter(r => visibleIds.has(String(r.user_id)) && (!filters.startDate || String(r.request_date) >= filters.startDate) && (!filters.endDate || String(r.request_date) <= filters.endDate));
 
   // Corrections query
   const corrRes = await db
@@ -82,7 +90,7 @@ export async function generateBossExcelWorkbook(
       ORDER BY ac.created_at DESC
     `)
     .all<Record<string, unknown>>();
-  const correctionRecords = corrRes.results || [];
+  const correctionRecords = (corrRes.results || []).filter(r => visibleIds.has(String(r.user_id)) && (!filters.startDate || String(r.attendance_date) >= filters.startDate) && (!filters.endDate || String(r.attendance_date) <= filters.endDate));
 
   // Holidays
   const holRes = await db.prepare('SELECT * FROM holidays ORDER BY date ASC').all<Record<string, unknown>>();
@@ -105,8 +113,8 @@ export async function generateBossExcelWorkbook(
       'Team': user ? user.team : 'General',
       'Work Mode': String(rec.work_mode).toUpperCase(),
       'Status': String(rec.status).toUpperCase(),
-      'Scheduled IN': '11:00 AM',
-      'Scheduled OUT': '07:00 PM',
+      'Scheduled IN': formatTime12FromHHMM(scheduledStart),
+      'Scheduled OUT': formatTime12FromHHMM(scheduledEnd),
       'Actual IN': formatTime12FromHHMM(rec.in_time as string),
       'Actual OUT': formatTime12FromHHMM(rec.out_time as string),
       'Total Elapsed Hours': formatMinutesToHumanDuration(Number(rec.total_duration_minutes) || 0),
@@ -185,6 +193,20 @@ export async function generateBossExcelWorkbook(
       }
       s.totalExtraMinutes += Number(r.extra_minutes) || 0;
       s.totalMinutes += Number(r.total_duration_minutes) || 0;
+    }
+  }
+
+  // Count the approved leave days overlapping this report's date window.
+  // Use the same inclusive day-count policy as the existing leave system.
+  for (const r of leaveRecords) {
+    if (r.status !== 'approved') continue;
+    const summary = summaryMap.get(String(r.user_id));
+    if (!summary) continue;
+    const start = String(r.start_date) > String(filters.startDate || '0000-01-01') ? String(r.start_date) : String(filters.startDate || r.start_date);
+    const end = String(r.end_date) < String(filters.endDate || '9999-12-31') ? String(r.end_date) : String(filters.endDate || r.end_date);
+    const count = Math.floor((Date.parse(end + 'T00:00:00Z') - Date.parse(start + 'T00:00:00Z')) / 86_400_000) + 1;
+    if (count > 0 && Number.isFinite(count)) {
+      summary.leaveDays += Number(r.is_half_day) && String(r.start_date) === String(r.end_date) ? 0.5 : count;
     }
   }
 

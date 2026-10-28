@@ -74,7 +74,7 @@ export const MobileNav: React.FC<MobileNavProps> = ({
           <span>Home</span>
         </button>
 
-        <button
+        {!isSuperAdmin && <button
           onClick={() => handleSelect('attendance')}
           className={`flex flex-col items-center justify-center p-2 rounded-xl text-[10px] font-medium transition cursor-pointer relative ${
             currentTab === 'attendance'
@@ -87,7 +87,7 @@ export const MobileNav: React.FC<MobileNavProps> = ({
             <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
           </div>
           <span>Punch</span>
-        </button>
+        </button>}
 
         <button
           onClick={() => handleSelect('requests')}

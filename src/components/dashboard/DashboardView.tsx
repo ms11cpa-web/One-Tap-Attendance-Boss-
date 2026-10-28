@@ -116,7 +116,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </p>
           </div>
 
-          <div className="flex items-center gap-3">
+          {user?.role !== 'super_admin' && <div className="flex items-center gap-3">
             <button
               onClick={() => onNavigateTab('attendance')}
               className="px-5 py-2.5 rounded-2xl bg-teal-600 hover:bg-teal-500 text-white font-bold text-xs sm:text-sm shadow-md hover:shadow-teal-600/30 transition cursor-pointer flex items-center gap-2"
@@ -124,7 +124,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <Clock className="w-4 h-4" />
               <span>One-Tap Attendance</span>
             </button>
-          </div>
+          </div>}
         </div>
       </div>
 
@@ -250,14 +250,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       )}
 
-      {/* Employee Personal Monthly Summary */}
-      <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm space-y-4">
+      {/* Super Admin oversees attendance but has no personal punch or monthly attendance cards. */}
+      {user?.role !== 'super_admin' && <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm space-y-4">
         <div className="flex items-center justify-between pb-3 border-b border-slate-100">
           <div>
             <h2 className="text-sm font-bold text-slate-900">
               {isAdminOrManager ? 'Your Personal Monthly Summary' : 'Your Attendance Summary'}
             </h2>
-            <p className="text-xs text-slate-500">October 2026 performance</p>
+            <p className="text-xs text-slate-500">{new Intl.DateTimeFormat('en-US',{month:'long',year:'numeric',timeZone:'Asia/Dhaka'}).format(new Date())} performance</p>
           </div>
           <button
             onClick={() => onNavigateTab('calendar')}
@@ -309,7 +309,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div className="pt-2">
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-                Leave Allowances (2026)
+                Leave Allowances ({new Intl.DateTimeFormat('en-US',{year:'numeric',timeZone:'Asia/Dhaka'}).format(new Date())})
               </span>
               <button
                 onClick={onOpenLeaveModal}
@@ -340,7 +340,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
           </div>
         )}
-      </div>
+      </div>}
     </div>
   );
 };

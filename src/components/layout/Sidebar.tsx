@@ -56,7 +56,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: 'attendance' as NavTab,
       label: 'One-Tap Attendance',
       icon: Clock,
-      show: true,
+      show: !isSuperAdmin,
       badge: 'Live',
     },
     {

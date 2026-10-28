@@ -70,7 +70,7 @@ export const EmployeesView: React.FC = () => {
       if (selectedStatus) params.set('status', selectedStatus);
 
       const res = await apiRequest<{ employees: User[] }>(`/api/employees?${params.toString()}`);
-      setEmployees(res.employees || []);
+      setEmployees((res.employees || []).sort((a,b)=>a.employee_id.localeCompare(b.employee_id,undefined,{numeric:true,sensitivity:'base'})));
     } catch (err) {
       console.error('Failed to load employees:', err);
     } finally {

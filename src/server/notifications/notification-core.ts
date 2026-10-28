@@ -40,7 +40,7 @@ export async function queueNotification(db:D1DatabaseLike,kind:OwnerType,id:stri
     WHERE n.dedupe_key=? AND ?=1`).bind(key,Number(preference.push_enabled)).run();
 }
 export async function queueManagers(db:D1DatabaseLike,category:Category,subject:string,title:string,body:string):Promise<void>{
-  const managers=await rows<{id:string}>(db,`SELECT m.user_id AS id FROM amb_program_managers m JOIN users u ON u.id=m.user_id WHERE u.status='active' UNION SELECT id FROM users WHERE role='super_admin' AND status='active'`);
+  const managers=await rows<{id:string}>(db,`SELECT m.user_id AS id FROM amb_program_managers m JOIN users u ON u.id=m.user_id WHERE u.status='active' AND u.role IN ('hr_admin','team_manager') UNION SELECT id FROM users WHERE role='super_admin' AND status='active'`);
   for(const mgr of managers)await queueNotification(db,'manager',mgr.id,category,subject,title,body);
 }
 export async function queueAmbassadors(db:D1DatabaseLike,ids:string[],category:Category,subject:string,title:string,body:string):Promise<void>{
@@ -63,7 +63,7 @@ export async function notificationApi(method:string,path:string,body:RecordValue
     const staff=await getUserFromSession(db,ctx.token);
     if(staff){
       const delegated=await db.prepare('SELECT user_id FROM amb_program_managers WHERE user_id=?').bind(staff.id).first();
-      if(staff.role==='super_admin'||delegated)owner={kind:'manager',id:String(staff.id)};
+      if(staff.role==='super_admin'||(delegated&&['hr_admin','team_manager'].includes(staff.role)))owner={kind:'manager',id:String(staff.id)};
     }
   }else if(path.startsWith('/api/ambassadors/notifications/member/')){
     if(owner?.kind!=='ambassador')owner=null;
@@ -160,7 +160,7 @@ export async function scheduledNotificationJobs(db:D1DatabaseLike,epoch:number):
     for(const p of due){await queueNotification(db,'ambassador',p.id,'daily',`daily:${day}`,'AGN daily reminder',`You have ${p.n} pending campaign task${Number(p.n)===1?'':'s'}.`);created++;}
     const count=await db.prepare("SELECT COUNT(*) AS n FROM amb_submissions WHERE status='submitted'").first<{n:number}>();
     if(Number(count?.n)){
-      const managers=await rows<{id:string}>(db,"SELECT m.user_id AS id FROM amb_program_managers m JOIN users u ON u.id=m.user_id WHERE u.status='active' UNION SELECT id FROM users WHERE role='super_admin' AND status='active'");
+      const managers=await rows<{id:string}>(db,"SELECT m.user_id AS id FROM amb_program_managers m JOIN users u ON u.id=m.user_id WHERE u.status='active' AND u.role IN ('hr_admin','team_manager') UNION SELECT id FROM users WHERE role='super_admin' AND status='active'");
       for(const mgr of managers){await queueNotification(db,'manager',mgr.id,'daily',`manager-daily:${day}`,'AGN approvals waiting',`${count!.n} submissions awaiting review.`);created++;}
     }
   }

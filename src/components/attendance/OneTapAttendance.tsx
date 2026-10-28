@@ -196,7 +196,7 @@ export const OneTapAttendance: React.FC<OneTapAttendanceProps> = ({
     setFeedback(null);
     setActionLoading(true);
 
-    const isRemote = data?.isRemoteApproved || data?.attendance?.work_mode === 'remote';
+    const isRemote = data?.attendance?.in_time ? data.attendance.work_mode === 'remote' : !!data?.isRemoteApproved;
 
     let lat = coords?.latitude;
     let lon = coords?.longitude;
@@ -259,7 +259,8 @@ export const OneTapAttendance: React.FC<OneTapAttendanceProps> = ({
   const attendance = data?.attendance;
   const hasIn = !!attendance?.in_time;
   const hasOut = !!attendance?.out_time;
-  const isRemote = !!data?.isRemoteApproved;
+  const isRemote = hasIn ? attendance?.work_mode === 'remote' : !!data?.isRemoteApproved;
+  const isOvernight = !!(hasIn && attendance?.attendance_date && data?.date && attendance.attendance_date !== data.date);
   const maxRadius = data?.settings?.permitted_radius_meters || 300;
 
   const isInsideRadius = estimatedDistance !== null ? estimatedDistance <= maxRadius : null;
@@ -292,6 +293,9 @@ export const OneTapAttendance: React.FC<OneTapAttendanceProps> = ({
           </div>
         </div>
 
+        {isOvernight && <p role="status" className="mb-3 rounded-xl border border-amber-600/60 bg-amber-950/50 px-3 py-2 text-xs font-semibold text-amber-200">
+          You have an open shift from {attendance?.attendance_date}. Please mark OUT for that shift, or request an attendance correction if it is older than 24 hours.
+        </p>}
         <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight mb-2">
           Hello, {user?.name}
         </h1>

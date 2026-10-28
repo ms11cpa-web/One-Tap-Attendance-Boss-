@@ -41,6 +41,7 @@ export const SettingsView: React.FC = () => {
   const [newHolEndDate, setNewHolEndDate] = useState('');
   const [newHolDesc, setNewHolDesc] = useState('');
   const [addingHol, setAddingHol] = useState(false);
+  const [editingHoliday,setEditingHoliday] = useState<Holiday|null>(null);
 
   const fetchSettingsAndHolidays = async () => {
     setLoading(true);
@@ -148,6 +149,7 @@ export const SettingsView: React.FC = () => {
   };
 
   const handleDeleteHoliday = async (id: string) => {
+    if (!window.confirm('Delete this holiday? This may change historical calendar and absence reports.')) return;
     try {
       await apiRequest(`/api/holidays/${id}`, { method: 'DELETE' });
       await fetchSettingsAndHolidays();
@@ -469,6 +471,14 @@ export const SettingsView: React.FC = () => {
           </div>
         </form>
 
+        {editingHoliday && <form onSubmit={async e=>{e.preventDefault();try{await apiRequest(`/api/holidays/${editingHoliday.id}`,{method:'PUT',body:JSON.stringify({name:editingHoliday.name,start_date:editingHoliday.date,end_date:editingHoliday.end_date||editingHoliday.date,description:editingHoliday.description})});setEditingHoliday(null);await fetchSettingsAndHolidays();}catch(error){window.alert(error instanceof Error?error.message:'Holiday edit failed');}}} className="rounded-xl border border-teal-200 bg-teal-50 p-4 space-y-3 text-xs">
+          <h3 className="font-bold text-teal-900">Edit holiday range</h3><div className="grid sm:grid-cols-2 gap-3">
+          <label className="font-semibold">Holiday name<input className="w-full px-3 py-2 rounded-lg bg-white border" required value={editingHoliday.name} onChange={e=>setEditingHoliday({...editingHoliday,name:e.target.value})}/></label>
+          <label className="font-semibold">Start date<input type="date" className="w-full px-3 py-2 rounded-lg bg-white border" required value={editingHoliday.date} onChange={e=>setEditingHoliday({...editingHoliday,date:e.target.value})}/></label>
+          <label className="font-semibold">End date<input type="date" className="w-full px-3 py-2 rounded-lg bg-white border" min={editingHoliday.date} value={editingHoliday.end_date||''} onChange={e=>setEditingHoliday({...editingHoliday,end_date:e.target.value})}/></label>
+          <label className="font-semibold">Description<input className="w-full px-3 py-2 rounded-lg bg-white border" value={editingHoliday.description||''} onChange={e=>setEditingHoliday({...editingHoliday,description:e.target.value})}/></label></div>
+          <button className="bg-teal-700 text-white rounded-lg px-4 py-2 font-semibold">Save holiday</button> <button type="button" className="underline" onClick={()=>setEditingHoliday(null)}>Cancel</button>
+        </form>}
         {/* Holidays List */}
         <div className="divide-y divide-slate-100 text-xs">
           {holidays.map(h => (
@@ -480,13 +490,13 @@ export const SettingsView: React.FC = () => {
                 </span>
                 {h.description && <span className="text-slate-500 text-[11px] ml-2">• {h.description}</span>}
               </div>
-              <button
+              <div className="flex gap-2"><button type="button" onClick={()=>setEditingHoliday({...h})} className="text-teal-700 underline px-2">Edit</button><button
                 onClick={() => handleDeleteHoliday(h.id)}
                 className="p-1 rounded-lg text-slate-400 hover:text-rose-600 transition cursor-pointer"
                 title="Remove Holiday"
               >
                 <Trash2 className="w-4 h-4" />
-              </button>
+              </button></div>
             </div>
           ))}
         </div>

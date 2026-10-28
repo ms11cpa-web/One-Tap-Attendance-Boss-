@@ -127,12 +127,27 @@ export async function handleApiRequest(
       return { status: 400, data: { error: 'Please enter both Employee ID and password.' } };
     }
 
+    // Separate per-account login throttling. Never put untrusted IDs into SQL text.
+    const loginKey = employeeId.slice(0, 60);
+    const nowAttempt = Date.now();
+    const attempts = await db.prepare('SELECT failures,locked_until,last_attempt FROM office_login_attempts WHERE employee_id=?')
+      .bind(loginKey).first<{failures:number;locked_until:number;last_attempt:number}>();
+    if (attempts && Number(attempts.locked_until) > nowAttempt)
+      return {status:429,data:{error:'Too many sign-in attempts. Please retry later.'}};
+    const recordFailure = async () => {
+      const count = (attempts && nowAttempt - Number(attempts.last_attempt) < 15*60_000 ? Number(attempts.failures) : 0) + 1;
+      await db.prepare(`INSERT INTO office_login_attempts (employee_id,failures,locked_until,last_attempt) VALUES(?,?,?,?)
+        ON CONFLICT(employee_id) DO UPDATE SET failures=excluded.failures,locked_until=excluded.locked_until,last_attempt=excluded.last_attempt`)
+        .bind(loginKey,count,count>=8?nowAttempt+15*60_000:0,nowAttempt).run();
+    };
+
     const userRow = await db
       .prepare('SELECT * FROM users WHERE UPPER(employee_id) = ?')
       .bind(employeeId)
       .first<Record<string, unknown>>();
 
     if (!userRow) {
+      await recordFailure();
       return { status: 401, data: { error: 'Invalid Employee ID or password.' } };
     }
 
@@ -142,9 +157,11 @@ export async function handleApiRequest(
 
     const isValid = await verifyPassword(password, String(userRow.password_hash));
     if (!isValid) {
+      await recordFailure();
       return { status: 401, data: { error: 'Invalid Employee ID or password.' } };
     }
 
+    await db.prepare('DELETE FROM office_login_attempts WHERE employee_id=?').bind(loginKey).run();
     const rememberDevice = body.remember_device === true;
     const token = generateSessionToken();
     const now = Date.now();
@@ -375,6 +392,16 @@ export async function handleApiRequest(
       .bind(user.id, todayDateStr)
       .first<Record<string, unknown>>();
 
+    // If no record was created today, return a still-open shift from yesterday
+    // so the client can offer Punch OUT across midnight. Expired shifts (>24h)
+    // will still require an attendance correction at the punch-out endpoint.
+    const openPrevious = !attendance ? await db.prepare(`SELECT * FROM attendance_records
+      WHERE user_id=? AND attendance_date < ? AND attendance_date >= ?
+        AND in_timestamp IS NOT NULL AND out_timestamp IS NULL
+      ORDER BY in_timestamp DESC LIMIT 1`)
+      .bind(user.id,todayDateStr,new Date(Date.now()-26*3600_000+6*3600_000).toISOString().slice(0,10))
+      .first<Record<string, unknown>>() : null;
+
     // Check if today is a holiday
     const holiday = await db
       .prepare('SELECT * FROM holidays WHERE date <= ? AND COALESCE(end_date, date) >= ? ORDER BY date ASC LIMIT 1')
@@ -394,7 +421,7 @@ export async function handleApiRequest(
         isHoliday: !!holiday,
         holidayName: holiday ? (holiday as { name: string }).name : null,
         isWeeklyOff,
-        attendance: attendance || null,
+        attendance: attendance || openPrevious || null,
         settings: {
           office_name: settings.office_name,
           office_latitude: settings.office_latitude,
@@ -411,6 +438,7 @@ export async function handleApiRequest(
 
   // PUNCH IN
   if (urlPath === '/api/attendance/punch-in' && normalizedMethod === 'POST') {
+    if (user.role === 'super_admin') return {status:403,data:{error:'Super Admin accounts manage attendance but do not punch in.'}};
     const settings = (await db.prepare(`SELECT * FROM office_settings WHERE id = 'default'`).first<Record<string, unknown>>()) || {
       office_latitude: 23.7925,
       office_longitude: 90.4078,
@@ -420,6 +448,14 @@ export async function handleApiRequest(
       work_end_time: '19:00',
       grace_period_minutes: 15,
     };
+
+    // A shift started before midnight must be clocked out or corrected first.
+    // Otherwise the one-record-per-day uniqueness rule permits two overlapping
+    // open shifts on consecutive dates, corrupting elapsed totals.
+    const openShift = await db.prepare(`SELECT id,attendance_date FROM attendance_records
+      WHERE user_id=? AND in_timestamp IS NOT NULL AND out_timestamp IS NULL
+      ORDER BY in_timestamp DESC LIMIT 1`).bind(user.id).first<{id:string;attendance_date:string}>();
+    if (openShift) return {status:409,data:{error:`An earlier shift (${openShift.attendance_date}) is still open. Clock OUT or request a correction before punching IN again.`}};
 
     // Check for existing punch-in today
     const existing = await db
@@ -438,7 +474,7 @@ export async function handleApiRequest(
 
     const workMode = (body.work_mode === 'remote') ? 'remote' : 'office';
     let distanceMeters = 0;
-    let accuracyMeters = Number(body.accuracy) || 0;
+    let accuracyMeters = Number(body.accuracy);
     const userLat = Number(body.latitude);
     const userLon = Number(body.longitude);
 
@@ -565,6 +601,7 @@ export async function handleApiRequest(
 
   // PUNCH OUT
   if (urlPath === '/api/attendance/punch-out' && normalizedMethod === 'POST') {
+    if (user.role === 'super_admin') return {status:403,data:{error:'Super Admin accounts manage attendance but do not punch out.'}};
     const settings = (await db.prepare(`SELECT * FROM office_settings WHERE id = 'default'`).first<Record<string, unknown>>()) || {
       office_latitude: 23.7925,
       office_longitude: 90.4078,
@@ -576,8 +613,8 @@ export async function handleApiRequest(
     };
 
     const existing = await db
-      .prepare('SELECT * FROM attendance_records WHERE user_id = ? AND attendance_date = ?')
-      .bind(user.id, todayDateStr)
+      .prepare("SELECT * FROM attendance_records WHERE user_id=? AND out_timestamp IS NULL AND in_time IS NOT NULL AND attendance_date >= ? AND attendance_date <= ? ORDER BY in_timestamp DESC LIMIT 1")
+      .bind(user.id, new Date(Date.now()-26*3600_000+6*3600_000).toISOString().slice(0,10),todayDateStr)
       .first<Record<string, unknown>>();
 
     if (!existing || !existing.in_time) {
@@ -596,7 +633,7 @@ export async function handleApiRequest(
 
     const workMode = existing.work_mode as string;
     let distanceMeters = 0;
-    const accuracyMeters = Number(body.accuracy) || 0;
+    const accuracyMeters = Number(body.accuracy);
     const userLat = Number(body.latitude);
     const userLon = Number(body.longitude);
 
@@ -632,7 +669,10 @@ export async function handleApiRequest(
     const outTimestamp = Date.now();
     const inTime = String(existing.in_time);
 
-    const totalDurationMinutes = calculateElapsedMinutes(inTime, outTime);
+    const elapsedMs = outTimestamp - Number(existing.in_timestamp);
+    if (!Number.isFinite(elapsedMs) || elapsedMs < 0 || elapsedMs > 24 * 3600_000)
+      return {status:400,data:{error:'This shift needs an attendance correction: missing or invalid IN timestamp, or more than 24 hours elapsed.'}};
+    const totalDurationMinutes = Math.floor(elapsedMs / 60_000);
     const extraMinutes = calculateExtraMinutes(outTime, String(settings.work_end_time || '19:00'));
     const scheduledTotal = Number(settings.scheduled_duration_minutes) || 480;
     const shortfallMinutes = Math.max(0, scheduledTotal - totalDurationMinutes);
@@ -757,6 +797,9 @@ export async function handleApiRequest(
     const targetUser = await db.prepare('SELECT * FROM users WHERE id = ?').bind(targetUserId).first<Record<string, unknown>>();
     if (!targetUser) {
       return { status: 404, data: { error: 'Employee not found' } };
+    }
+    if (user.role === 'team_manager' && targetUserId !== user.id && targetUser.team !== user.team) {
+      return { status: 403, data: { error: 'Calendar access is limited to your team.' } };
     }
 
     const yearMonth = query.month || todayDateStr.substring(0, 7); // e.g. "2026-10"
@@ -922,14 +965,16 @@ export async function handleApiRequest(
     // Admin / Manager Company-wide Stats
     let companySummary = null;
     if (user.role !== 'employee') {
+      const managerView = user.role === 'team_manager';
       const activeEmpCount = await db
-        .prepare(`SELECT COUNT(*) as count FROM users WHERE status = 'active'`)
-        .first<{ count: number }>();
+        .prepare(`SELECT COUNT(*) as count FROM users WHERE status = 'active' AND role <> 'super_admin' ${managerView?'AND team=?':''}`)
+        .bind(...(managerView?[user.team]:[])).first<{ count: number }>();
 
-      // Attendance today
+      // Attendance today (manager views are scoped to their own team).
       const todayAtt = (await db
-        .prepare('SELECT * FROM attendance_records WHERE attendance_date = ?')
-        .bind(todayDateStr)
+        .prepare(`SELECT ar.* FROM attendance_records ar JOIN users u ON u.id = ar.user_id
+          WHERE ar.attendance_date = ? AND u.role <> 'super_admin' AND u.status='active' ${managerView?'AND u.team=?':''}`)
+        .bind(todayDateStr,...(managerView?[user.team]:[]))
         .all<Record<string, unknown>>()).results || [];
 
       const officeToday = todayAtt.filter(r => r.work_mode === 'office').length;
@@ -939,14 +984,16 @@ export async function handleApiRequest(
 
       // Leaves today
       const onLeaveToday = await db
-        .prepare(`SELECT COUNT(*) as count FROM leave_requests WHERE status = 'approved' AND start_date <= ? AND end_date >= ?`)
-        .bind(todayDateStr, todayDateStr)
-        .first<{ count: number }>();
+        .prepare(`SELECT COUNT(DISTINCT u.id) as count FROM leave_requests lr JOIN users u ON u.id = lr.user_id
+          WHERE lr.status='approved' AND lr.start_date<=? AND lr.end_date>=? AND u.role<>'super_admin' AND u.status='active' ${managerView?'AND u.team=?':''}`)
+        .bind(todayDateStr,todayDateStr,...(managerView?[user.team]:[])).first<{count:number}>();
 
-      // Pending Approvals
-      const pendingLeave = await db.prepare(`SELECT COUNT(*) as count FROM leave_requests WHERE status = 'pending'`).first<{ count: number }>();
-      const pendingRemote = await db.prepare(`SELECT COUNT(*) as count FROM remote_requests WHERE status = 'pending'`).first<{ count: number }>();
-      const pendingCorrections = await db.prepare(`SELECT COUNT(*) as count FROM attendance_corrections WHERE status = 'pending'`).first<{ count: number }>();
+      // Pending Approvals; manager counts exclude their own requests.
+      const teamScope = managerView ? "JOIN users u ON u.id=r.user_id WHERE r.status='pending' AND u.team=? AND u.id<>?" : "WHERE r.status='pending'";
+      const pendingParams = managerView ? [user.team,user.id] : [];
+      const pendingLeave = await db.prepare(`SELECT COUNT(*) AS count FROM leave_requests r ${teamScope}`).bind(...pendingParams).first<{count:number}>();
+      const pendingRemote = await db.prepare(`SELECT COUNT(*) AS count FROM remote_requests r ${teamScope}`).bind(...pendingParams).first<{count:number}>();
+      const pendingCorrections = await db.prepare(`SELECT COUNT(*) AS count FROM attendance_corrections r ${teamScope}`).bind(...pendingParams).first<{count:number}>();
 
       const totalActive = activeEmpCount ? activeEmpCount.count : 0;
       const presentCount = todayAtt.length;
@@ -1056,12 +1103,14 @@ export async function handleApiRequest(
       return { status: 400, data: { error: 'Invalid action.' } };
     }
 
-    await db
-      .prepare(
-        'UPDATE remote_requests SET status = ?, approved_by = ?, action_reason = ?, action_timestamp = ? WHERE id = ?'
-      )
-      .bind(action, user.name, actionReason, Date.now(), id)
-      .run();
+    const request = await db.prepare(`SELECT r.status,r.user_id,u.team FROM remote_requests r JOIN users u ON u.id=r.user_id WHERE r.id=?`).bind(id).first<{status:string;user_id:string;team:string}>();
+    if (!request) return { status:404,data:{error:'Remote work request not found.'} };
+    if (user.role === 'team_manager' && (request.team !== user.team || request.user_id === user.id))
+      return {status:403,data:{error:'Managers can approve other employees in their own team only.'}};
+    if (request.status !== 'pending') return {status:409,data:{error:'This remote request has already been reviewed.'}};
+    const updated = await db.prepare('UPDATE remote_requests SET status = ?, approved_by = ?, action_reason = ?, action_timestamp = ? WHERE id = ? AND status = ?')
+      .bind(action,user.name,actionReason,Date.now(),id,'pending').run();
+    if (updated.meta?.changes === 0) return {status:409,data:{error:'This remote request has already been reviewed.'}};
 
     await logAudit(db, user, `REMOTE_REQUEST_${action.toUpperCase()}`, 'remote_work', id, { actionReason }, context.ip);
 
@@ -1208,20 +1257,27 @@ export async function handleApiRequest(
     const action = String(body.status); // 'approved' | 'rejected'
     const actionReason = String(body.action_reason || '');
 
+    if (action !== 'approved' && action !== 'rejected') return {status:400,data:{error:'Invalid leave decision.'}};
     const req = await db.prepare('SELECT * FROM leave_requests WHERE id = ?').bind(id).first<Record<string, unknown>>();
     if (!req) return { status: 404, data: { error: 'Leave request not found.' } };
+    if (user.role === 'team_manager') {
+      const requester = await db.prepare('SELECT team FROM users WHERE id=?').bind(req.user_id).first<{team:string}>();
+      if (!requester || requester.team !== user.team || req.user_id === user.id)
+        return {status:403,data:{error:'Managers can review other members of their own team only.'}};
+    }
     if (req.status !== 'pending') {
       return { status: 400, data: { error: `Request is already ${req.status}.` } };
     }
 
     const daysCount = Number(req.days_count) || 1;
-    const currentYear = new Date().getFullYear();
+    const currentYear = Number(String(req.start_date).slice(0,4)) || new Date().getFullYear();
 
     if (action === 'approved') {
-      await db
-        .prepare(`UPDATE leave_requests SET status = 'approved', approved_by = ?, action_reason = ?, action_timestamp = ? WHERE id = ?`)
+      const decisionResult = await db
+        .prepare(`UPDATE leave_requests SET status = 'approved', approved_by = ?, action_reason = ?, action_timestamp = ? WHERE id = ? AND status = 'pending'`)
         .bind(user.name, actionReason, Date.now(), id)
         .run();
+      if (decisionResult.meta?.changes === 0) return {status:409,data:{error:'Leave was reviewed by another manager. Reload.'}};
 
       // Deduct from pending, add to used
       await db
@@ -1229,10 +1285,11 @@ export async function handleApiRequest(
         .bind(daysCount, daysCount, req.user_id, req.category_id, currentYear)
         .run();
     } else {
-      await db
-        .prepare(`UPDATE leave_requests SET status = 'rejected', approved_by = ?, action_reason = ?, action_timestamp = ? WHERE id = ?`)
+      const decisionResult = await db
+        .prepare(`UPDATE leave_requests SET status = 'rejected', approved_by = ?, action_reason = ?, action_timestamp = ? WHERE id = ? AND status = 'pending'`)
         .bind(user.name, actionReason, Date.now(), id)
         .run();
+      if (decisionResult.meta?.changes === 0) return {status:409,data:{error:'Leave was reviewed by another manager. Reload.'}};
 
       // Release pending days
       await db
@@ -1396,6 +1453,11 @@ export async function handleApiRequest(
     let sql = 'SELECT id, employee_id, name, email, phone, role, team, designation, manager_id, status, joining_date, created_at FROM users WHERE 1=1';
     const params: unknown[] = [];
 
+    if (user.role === 'employee') {
+      sql += ' AND id = ?'; params.push(user.id);
+    } else if (user.role === 'team_manager') {
+      sql += ' AND (team = ? OR id = ?)'; params.push(user.team, user.id);
+    }
     if (query.team) {
       sql += ' AND team = ?';
       params.push(query.team);
@@ -1416,7 +1478,9 @@ export async function handleApiRequest(
     sql += ' ORDER BY employee_id ASC';
     const list = await db.prepare(sql).bind(...params).all();
 
-    return { status: 200, data: { employees: list.results || [] } };
+    const employees = user.role === 'super_admin' || user.role === 'hr_admin' ? (list.results || []) :
+      (list.results || []).map(({ email, phone, ...safe }) => safe);
+    return { status: 200, data: { employees } };
   }
 
   if (urlPath === '/api/employees' && normalizedMethod === 'POST') {
@@ -1589,6 +1653,10 @@ export async function handleApiRequest(
       .bind(name, email, phone, team, designation, role, status, joiningDate, Date.now(), targetId)
       .run();
 
+    if (status !== 'active' || role === 'employee') {
+      await db.prepare('DELETE FROM amb_program_managers WHERE user_id=?').bind(targetId).run();
+      await db.prepare("DELETE FROM amb_push_subscriptions WHERE owner_type='manager' AND owner_id=?").bind(targetId).run();
+    }
     await logAudit(db, user, 'UPDATE_EMPLOYEE', 'user', targetId, { name, role, status, team }, context.ip);
 
     return { status: 200, data: { success: true, message: 'Employee updated successfully.' } };
@@ -1709,6 +1777,18 @@ export async function handleApiRequest(
     return { status: 200, data: { success: true, message: 'Holiday added.' } };
   }
 
+  if (urlPath.startsWith('/api/holidays/') && normalizedMethod === 'PUT') {
+    if (user.role !== 'super_admin' && user.role !== 'hr_admin') return {status:403,data:{error:'Admin access required.'}};
+    const id=urlPath.slice('/api/holidays/'.length);
+    const existing=await db.prepare('SELECT id FROM holidays WHERE id=?').bind(id).first();
+    if(!existing)return {status:404,data:{error:'Holiday not found.'}};
+    const name=String(body.name||'').trim().slice(0,140),date=String(body.start_date||'').trim(),end=String(body.end_date||date).trim(),description=String(body.description||'').trim().slice(0,500);
+    const valid=(v:string)=>/^\d{4}-\d{2}-\d{2}$/.test(v)&&!Number.isNaN(Date.parse(v+'T00:00:00Z'))&&new Date(v+'T00:00:00Z').toISOString().slice(0,10)===v;
+    if(!name||!valid(date)||!valid(end)||end<date)return {status:400,data:{error:'Provide a name and a valid inclusive start/end date range.'}};
+    await db.prepare('UPDATE holidays SET name=?,date=?,end_date=?,description=? WHERE id=?').bind(name,date,end,description,id).run();
+    await logAudit(db,user,'EDIT_HOLIDAY','holiday',id,{name,date,end},context.ip);
+    return {status:200,data:{success:true}};
+  }
   if (urlPath.startsWith('/api/holidays/') && normalizedMethod === 'DELETE') {
     if (user.role !== 'super_admin' && user.role !== 'hr_admin') {
       return { status: 403, data: { error: 'Unauthorized.' } };
@@ -1742,10 +1822,18 @@ export async function handleApiRequest(
       return { status: 403, data: { error: 'Unauthorized' } };
     }
 
+    if (user.role === 'team_manager' && query.team && query.team !== user.team)
+      return {status:403,data:{error:'Reports are limited to your own team.'}};
+    if (user.role === 'employee' && query.team && query.team !== user.team)
+      return {status:403,data:{error:'Reports are limited to your own records.'}};
+    if (user.role === 'team_manager' && query.userId && query.userId !== user.id) {
+      const target = await db.prepare('SELECT team FROM users WHERE id=?').bind(query.userId).first<{team:string}>();
+      if (!target || target.team !== user.team) return {status:403,data:{error:'Reports are limited to your own team.'}};
+    }
     const filters = {
       startDate: query.startDate,
       endDate: query.endDate,
-      team: query.team,
+      team: user.role === 'team_manager' ? user.team : user.role === 'employee' ? undefined : query.team,
       userId: user.role === 'employee' ? user.id : query.userId,
     };
 

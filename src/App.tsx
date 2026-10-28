@@ -94,7 +94,7 @@ const MainApp: React.FC = () => {
             />
           )}
 
-          {currentTab === 'attendance' && (
+          {currentTab === 'attendance' && user.role !== 'super_admin' && (
             <OneTapAttendance
               onNavigateTab={setCurrentTab}
               onOpenLeaveModal={() => setShowLeaveModal(true)}

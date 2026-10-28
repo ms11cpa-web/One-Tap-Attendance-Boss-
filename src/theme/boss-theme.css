@@ -398,3 +398,22 @@ html[data-boss-theme="light"] {background:#f8fafc;scrollbar-color:#cbd5e1 #f1f5f
 html[data-boss-theme="dark"] ::-webkit-scrollbar-track {background:#0f172a;}
 html[data-boss-theme="dark"] ::-webkit-scrollbar-thumb {background:#475569;}
 html[data-boss-theme="dark"] ::-webkit-scrollbar-thumb:hover {background:#64748b;}
+
+/* Accessible foregrounds for newly added edit, correction and award panels in dark mode. */
+html[data-boss-theme="dark"] .boss-employee [class~="text-teal-900"] { color:#99f6e4; }
+html[data-boss-theme="dark"] .boss-employee [class~="text-amber-950"] { color:#fde68a; }
+html[data-boss-theme="dark"] .boss-employee [class~="text-slate-600"] { color:#cbd5e1; }
+html[data-boss-theme="dark"] .boss-employee [class~="bg-teal-50"] :is(input,textarea,select),
+html[data-boss-theme="dark"] .boss-employee [class~="bg-amber-50"] :is(input,textarea,select) { background:#142137; color:#f8fafc; border-color:#64748b; }
+html[data-boss-theme="dark"] .boss-employee [class~="bg-teal-50"] :is(input,textarea)::placeholder,
+html[data-boss-theme="dark"] .boss-employee [class~="bg-amber-50"] :is(input,textarea)::placeholder { color:#94a3b8; }
+/* Ambassador recognition cards: amber remains readable in both modes. */
+html[data-boss-theme="light"] .boss-ambassador [class~="bg-amber-950/20"] {background-color:#fffbeb;border-color:#d97706;}
+html[data-boss-theme="light"] .boss-ambassador [class~="text-amber-200"] {color:#92400e;}
+
+/* v5.1: improve small, non-decorative labels in the light employee dashboard.
+   These previously used Tailwind mid-tones intended for large text/icons. */
+html[data-boss-theme="light"] .boss-employee [class~="text-cyan-600"] { color:#155e75; }
+html[data-boss-theme="light"] .boss-employee [class~="text-amber-600"] { color:#92400e; }
+html[data-boss-theme="light"] .boss-employee [class~="text-slate-400"] { color:#64748b; }
+html[data-boss-theme="light"] .boss-employee :is(input,textarea)::placeholder { color:#64748b;opacity:1; }

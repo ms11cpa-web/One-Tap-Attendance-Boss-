@@ -51,11 +51,7 @@ class SqlJsPreparedStatement implements D1PreparedStatementLike {
     } catch (err: unknown) {
       const errorMsg = err instanceof Error ? err.message : String(err);
       console.error('SQL Query Error:', this.query, this.params, errorMsg);
-      return {
-        results: [],
-        success: false,
-        error: errorMsg,
-      };
+      throw err;
     }
   }
 
@@ -67,14 +63,13 @@ class SqlJsPreparedStatement implements D1PreparedStatementLike {
       }
       return {
         success: true,
+        meta: { changes: this.db.getRowsModified() },
       };
     } catch (err: unknown) {
-      const errorMsg = err instanceof Error ? err.message : String(err);
-      console.error('SQL Run Error:', this.query, this.params, errorMsg);
-      return {
-        success: false,
-        error: errorMsg,
-      };
+      // Cloudflare D1 rejects failed statements. Silently returning success:false
+      // here let route handlers report success after a failed database mutation.
+      console.error('SQL Run Error:', this.query, this.params, err);
+      throw err;
     }
   }
 
@@ -112,12 +107,18 @@ export class NodeD1Database implements D1DatabaseLike {
   }
 
   async batch<T = unknown>(statements: D1PreparedStatementLike[]): Promise<D1Result<T>[]> {
-    const results: D1Result<T>[] = [];
-    for (const stmt of statements) {
-      results.push(await stmt.run<T>());
+    // Emulate Cloudflare D1 batch atomicity for campus-wide campaign creation.
+    this.db.run('BEGIN TRANSACTION');
+    try {
+      const results: D1Result<T>[] = [];
+      for (const stmt of statements) results.push(await stmt.run<T>());
+      this.db.run('COMMIT');
+      this.scheduleSave();
+      return results;
+    } catch (e) {
+      this.db.run('ROLLBACK');
+      throw e;
     }
-    this.scheduleSave();
-    return results;
   }
 
   async exec(query: string): Promise<{ count: number; duration: number }> {
@@ -192,6 +193,13 @@ export async function getOrCreateNodeD1Database(): Promise<NodeD1Database> {
   if (!hasNotificationTables[0]?.values.length) {
     const notificationMigration = path.resolve('migrations/0005_ambassador_notifications.sql');
     if (fs.existsSync(notificationMigration)) db.exec(fs.readFileSync(notificationMigration, 'utf8'));
+  }
+
+  // Security and non-monetary recognition tables v5; keep local emulator in sync with remote D1.
+  const hasSecurityTables = db.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='office_login_attempts'");
+  if (!hasSecurityTables[0]?.values.length) {
+    const hardeningMigration = path.resolve('migrations/0006_boss_security_hardening.sql');
+    if (fs.existsSync(hardeningMigration)) db.exec(fs.readFileSync(hardeningMigration, 'utf8'));
   }
 
   // Seed default data if users table is empty
