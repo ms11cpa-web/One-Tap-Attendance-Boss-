@@ -1,4 +1,8 @@
 @import "tailwindcss";
+
+/* Make Tailwind's dark: utilities follow Boss's explicit theme toggle.
+   Do not let the operating system's prefers-color-scheme override Boss Light mode. */
+@custom-variant dark (&:where(html[data-boss-theme="dark"], html[data-boss-theme="dark"] *));
 @import "./theme/boss-theme.css";
 
 @layer base {

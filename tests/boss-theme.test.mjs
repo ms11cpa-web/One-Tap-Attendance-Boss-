@@ -4,6 +4,7 @@ import {readFileSync} from 'node:fs';
 
 const read = path => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
 const css = read('src/theme/boss-theme.css');
+const entryCss = read('src/index.css');
 const theme = read('src/theme/ThemeContext.tsx');
 const html = read('index.html');
 const entry = read('src/App.tsx');
@@ -36,6 +37,11 @@ test('theme toggles accessible on employee and ambassador screens', () => {
   assert.match(read('src/components/layout/ThemeToggle.tsx'), /aria-label/);
   assert.match(read('src/components/layout/ThemeToggle.tsx'), /aria-pressed/);
 });
+
+test('Tailwind dark utilities follow the Boss theme toggle, not the OS preference', () => {
+  assert.match(entryCss, /@custom-variant\s+dark\s+\(&:where\(html\[data-boss-theme="dark"\],\s*html\[data-boss-theme="dark"\]\s*\*\)\);/);
+});
+
 // Contrast math validates chosen neutral tokens and the main teal action against their backgrounds.
 function lum(hex){const n=hex.slice(1).match(/../g).map(v=>parseInt(v,16)/255)
   .map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4);return .2126*n[0]+.7152*n[1]+.0722*n[2];}
