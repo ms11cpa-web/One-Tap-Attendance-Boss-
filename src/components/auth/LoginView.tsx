@@ -207,6 +207,10 @@ export const LoginView: React.FC = () => {
                 <span>Campus Ambassador Login</span>
                 <ArrowRight className="h-4 w-4 shrink-0" aria-hidden="true" />
               </a>
+              <a href="/commission" aria-label="Go to Commission Agent Login"
+                className="mt-3 w-full flex items-center justify-center gap-2 rounded-2xl border border-slate-700 bg-slate-800 px-4 py-3 text-slate-100 text-xs sm:text-sm font-bold hover:border-teal-500 hover:bg-slate-700 focus-visible:ring-2 focus-visible:ring-teal-400">
+                <span>Commission-Based Agent Login</span><ArrowRight className="w-4 h-4"/>
+              </a>
             </div>
           )}
 

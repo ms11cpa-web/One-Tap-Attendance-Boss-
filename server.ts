@@ -7,6 +7,7 @@ import { getOrCreateNodeD1Database } from './src/server/db/node-d1.ts';
 import { handleApiRequest, getUserFromSession, REMEMBER_IDLE_MS, SHORT_SESSION_MS } from './src/server/routes/api-handler.ts';
 import { hashRecoveryCode } from './src/server/auth/recovery.ts';
 import { handleAmbassadorRequest } from './src/server/routes/ambassadors.ts';
+import { handleCrmRequest } from './src/server/crm/router.ts';
 import { notificationApi } from './src/server/notifications/notification-core.ts';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -29,7 +30,7 @@ async function startServer() {
   // API Route Handler
   app.all('/api/*', async (req, res) => {
     try {
-      if (req.path.startsWith('/api/ambassadors/') && ['POST','PUT','DELETE'].includes(req.method.toUpperCase())) {
+      if ((req.path.startsWith('/api/ambassadors/') || req.path.startsWith('/api/crm/')) && ['POST','PUT','DELETE'].includes(req.method.toUpperCase())) {
         const origin = req.headers.origin;
         if (origin && origin !== `${req.protocol}://${req.get('host')}`) return res.status(403).json({ error: 'Invalid request origin.' });
       }
@@ -38,7 +39,10 @@ async function startServer() {
       const body = req.body || {};
       const ip = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
 
-      const result = await (req.path.startsWith('/api/ambassadors/notifications/') ? notificationApi(
+      const result = await ((req.path.startsWith('/api/crm/') || req.path.startsWith('/api/ambassadors/crm/')) ? handleCrmRequest(
+        req.method,req.path.startsWith('/api/ambassadors/crm/')?req.path.replace('/api/ambassadors/crm/','/api/crm/'):req.path,body,
+        {officeToken:(req.path.startsWith('/api/ambassadors/crm/')||req.path.startsWith('/api/crm/agent/'))?undefined:token,ambassadorToken:req.path.startsWith('/api/ambassadors/crm/')?req.cookies?.boss_ambassador_session:undefined,commissionToken:req.cookies?.boss_commission_session,query},db
+      ) : req.path.startsWith('/api/ambassadors/notifications/') ? notificationApi(
         req.method,req.path,body,{token,ambassadorToken:req.cookies?.boss_ambassador_session},db,process.env
       ) : req.path.startsWith('/api/ambassadors/') ? handleAmbassadorRequest(
         req.method, req.path, body, { token, ambassadorToken: req.cookies?.boss_ambassador_session, ip, query }, db
@@ -65,7 +69,7 @@ async function startServer() {
           }
         }
       }
-      if (req.path.startsWith('/api/ambassadors/')) res.setHeader('Cache-Control', 'no-store');
+      if (req.path.startsWith('/api/ambassadors/') || req.path.startsWith('/api/crm/')) res.setHeader('Cache-Control', 'no-store');
       if (result.headers) {
         for (const [key, value] of Object.entries(result.headers)) {
           res.setHeader(key, value);

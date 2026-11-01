@@ -15,7 +15,7 @@
         var choice = null;
         try { choice = localStorage.getItem('boss-ui-theme-v1'); } catch (_) { /* blocked storage */ }
         var theme = choice === 'light' || choice === 'dark' ? choice :
-          (location.pathname.replace(/\/$/, '') === '/ambassadors' ? 'dark' : 'light');
+          (['/ambassadors','/commission'].includes(location.pathname.replace(/\/$/, '')) ? 'dark' : 'light');
         document.documentElement.dataset.bossTheme = theme;
         document.documentElement.style.colorScheme = theme;
         document.querySelector('meta[name="theme-color"]').setAttribute('content', theme === 'dark' ? '#0b1220' : '#f8fafc');

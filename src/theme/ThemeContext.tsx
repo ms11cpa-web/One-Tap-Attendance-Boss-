@@ -5,7 +5,7 @@ const STORAGE_KEY = 'boss-ui-theme-v1';
 
 function routeDefault(): BossTheme {
   // The office application was light by default; the ambassador portal was dark.
-  return typeof window !== 'undefined' && window.location.pathname.replace(/\/$/, '') === '/ambassadors' ? 'dark' : 'light';
+  return typeof window !== 'undefined' && ['/ambassadors','/commission'].includes(window.location.pathname.replace(/\/$/, '')) ? 'dark' : 'light';
 }
 function storedTheme(): BossTheme {
   try {

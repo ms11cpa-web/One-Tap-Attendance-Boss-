@@ -202,6 +202,13 @@ export async function getOrCreateNodeD1Database(): Promise<NodeD1Database> {
     if (fs.existsSync(hardeningMigration)) db.exec(fs.readFileSync(hardeningMigration, 'utf8'));
   }
 
+  // CRM v6 additive tables — same schema locally and on production D1.
+  const crmTables = db.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='crm_leads'");
+  if (!crmTables[0]?.values.length) {
+    const crmMigration = path.resolve('migrations/0007_crm_leads_commission.sql');
+    if (fs.existsSync(crmMigration)) db.exec(fs.readFileSync(crmMigration,'utf8'));
+  }
+
   // Seed default data if users table is empty
   await seedInitialData(nodeDb);
 

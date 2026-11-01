@@ -5,7 +5,6 @@ import {
   Clock,
   CalendarCheck2,
   FileCheck2,
-  CalendarDays,
   Users,
   FileSpreadsheet,
   Settings,
@@ -13,6 +12,7 @@ import {
   Palmtree,
   Laptop,
   GraduationCap,
+  ContactRound,
 } from 'lucide-react';
 
 export type NavTab =
@@ -27,7 +27,8 @@ export type NavTab =
   | 'reports'
   | 'settings'
   | 'audit'
-  | 'ambassadors';
+  | 'ambassadors'
+  | 'crm';
 
 interface SidebarProps {
   currentTab: NavTab;
@@ -85,12 +86,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
       show: true,
     },
     {
-      id: 'calendar' as NavTab,
-      label: 'Monthly Calendar',
-      icon: CalendarDays,
-      show: true,
-    },
-    {
       id: 'employees' as NavTab,
       label: 'Employees',
       icon: Users,
@@ -113,6 +108,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
       label: 'Campus Ambassador Hub',
       icon: GraduationCap,
       show: isAdminOrManager,
+    },
+    {
+      id: 'crm' as NavTab,
+      label: 'Leads & Clients CRM',
+      icon: ContactRound,
+      show: true,
     },
     {
       id: 'audit' as NavTab,

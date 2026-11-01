@@ -44,6 +44,7 @@ const stub=(request)=>{
  if(request.includes('auth/crypto'))return {hashPassword:async x=>x,verifyPassword:async(a,b)=>a===b,generateSessionToken:()=> 'new-token'};
  if(request.includes('auth/recovery'))return {hashRecoveryCode:async x=>'hash:'+x};
  if(request.includes('utils/time'))return {getDhakaDateString:()=>'2026-10-28'};
+ if(request.includes('utils/campaign-deadline'))return {campaignAcceptsWork:(status,due,today)=>status==='active'&&due>=today};
  if(request.includes('utils/ambassador-performance'))return {calculateMonthlyPerformance:()=>({score:0}),monthWindow:()=>({start:'2026-10-01',cutoff:'2026-10-27',complete:false}),winnerEligible:()=>false};
  if(request.includes('notifications/notification-core'))return {queueManagers:async()=>{},queueAmbassadors:async()=>{}};
  throw Error('Unexpected module '+request)

@@ -21,6 +21,8 @@ import { apiRequest } from './api/client';
 import { RefreshCw } from 'lucide-react';
 import { AmbassadorAdminView } from './components/ambassadors/AmbassadorAdminView';
 import { AmbassadorPortal } from './components/ambassadors/AmbassadorPortal';
+import { CrmWorkspace } from './components/crm/CrmWorkspace';
+import { CommissionPortal } from './components/crm/CommissionPortal';
 import { BossThemeProvider } from './theme/ThemeContext';
 
 const MainApp: React.FC = () => {
@@ -139,6 +141,7 @@ const MainApp: React.FC = () => {
           {currentTab === 'audit' && <AuditLogsView />}
 
           {currentTab === 'ambassadors' && user.role !== 'employee' && <AmbassadorAdminView />}
+          {currentTab === 'crm' && <CrmWorkspace portal="office" />}
         </main>
       </div>
 
@@ -183,6 +186,7 @@ const MainApp: React.FC = () => {
 function AppRoutes() {
   // Separate ambassador identity cannot enter regular office screens.
   if (window.location.pathname.replace(/\/$/, '') === '/ambassadors') return <AmbassadorPortal />;
+  if (window.location.pathname.replace(/\/$/, '') === '/commission') return <CommissionPortal />;
   return <AuthProvider><MainApp /></AuthProvider>;
 }
 

@@ -417,3 +417,54 @@ html[data-boss-theme="light"] .boss-employee [class~="text-cyan-600"] { color:#1
 html[data-boss-theme="light"] .boss-employee [class~="text-amber-600"] { color:#92400e; }
 html[data-boss-theme="light"] .boss-employee [class~="text-slate-400"] { color:#64748b; }
 html[data-boss-theme="light"] .boss-employee :is(input,textarea)::placeholder { color:#64748b;opacity:1; }
+
+/* v6 CRM explicitly follows Boss's data-boss-theme attribute rather than Tailwind's
+   class-based dark: selector. This also applies when CRM is nested in ambassador UI. */
+html[data-boss-theme="dark"] .boss-crm [class~="bg-white"] {background-color:#142137;color:#f8fafc;}
+html[data-boss-theme="dark"] .boss-crm [class~="bg-slate-100"] {background-color:#1e293b;}
+html[data-boss-theme="dark"] .boss-crm [class~="text-slate-900"] {color:#f8fafc;}
+html[data-boss-theme="dark"] .boss-crm [class~="text-slate-800"] {color:#e2e8f0;}
+html[data-boss-theme="dark"] .boss-crm [class~="text-slate-700"] {color:#cbd5e1;}
+html[data-boss-theme="dark"] .boss-crm [class~="text-slate-600"] {color:#cbd5e1;}
+html[data-boss-theme="dark"] .boss-crm [class~="text-slate-500"] {color:#94a3b8;}
+html[data-boss-theme="dark"] .boss-crm [class~="border-slate-200"],
+html[data-boss-theme="dark"] .boss-crm [class~="border-slate-300"] {border-color:#475569;}
+html[data-boss-theme="dark"] .boss-crm :is(input,textarea,select) {background:#0f172a;color:#f8fafc;border-color:#475569;}
+html[data-boss-theme="dark"] .boss-crm :is(input,textarea)::placeholder {color:#94a3b8;}
+html[data-boss-theme="dark"] .boss-crm :is(input,textarea,select):focus-visible {outline:2px solid #14b8a6;outline-offset:1px;}
+
+/* v6.1 — Campaign management surfaces: readable actions, distinct deadlines and
+   grouped assignments in both employee themes. Only affects Campus Hub campaign cards. */
+.boss-employee .boss-campaign-row {
+  border:1px solid #cbd5e1; border-radius:1rem; background:#f8fafc;
+  color:#0f172a; padding:1rem; margin-top:.9rem;
+}
+.boss-employee .boss-campaign-title {font-size:1rem;line-height:1.4;font-weight:750;color:#0f172a;}
+.boss-employee .boss-campaign-meta {font-size:.8125rem;line-height:1.55;color:#475569;}
+.boss-employee .boss-campaign-hint {font-size:.8125rem;line-height:1.55;color:#92400e;margin-top:.5rem;}
+.boss-employee .boss-campaign-assignments {margin-top:.85rem;border-top:1px solid #cbd5e1;}
+.boss-employee .boss-campaign-assignment {display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;justify-content:space-between;padding:.65rem 0;border-bottom:1px solid #e2e8f0;font-size:.8125rem;line-height:1.45;}
+.boss-employee .boss-campaign-assignments .boss-campaign-assignment:last-child {border-bottom:0;padding-bottom:0;}
+.boss-employee .boss-campaign-actions {display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;}
+.boss-employee .boss-campaign-action {font-size:.8125rem;font-weight:650;line-height:1.25;border:1px solid #99f6e4;background:#f0fdfa;color:#115e59;border-radius:.6rem;padding:.42rem .6rem;min-height:2rem;cursor:pointer;}
+.boss-employee .boss-campaign-action:hover {background:#ccfbf1;color:#134e4a;}
+.boss-employee .boss-campaign-action:focus-visible {outline:2px solid #0d9488;outline-offset:2px;}
+.boss-employee .boss-campaign-action--danger {border-color:#fecdd3;background:#fff1f2;color:#9f1239;}
+.boss-employee .boss-campaign-action--danger:hover {background:#ffe4e6;color:#881337;}
+.boss-employee .boss-campaign-status {font-size:.72rem;letter-spacing:.015em;font-weight:750;border:1px solid transparent;border-radius:50rem;padding:.22rem .55rem;white-space:nowrap;}
+.boss-employee .boss-campaign-status--active {background:#ccfbf1;color:#115e59;border-color:#5eead4;}
+.boss-employee .boss-campaign-status--expired {background:#fef3c7;color:#92400e;border-color:#fcd34d;}
+.boss-employee .boss-campaign-status--archived {background:#e2e8f0;color:#334155;border-color:#cbd5e1;}
+html[data-boss-theme="dark"] .boss-employee .boss-campaign-row {background:#19273b;border-color:#475569;color:#f1f5f9;}
+html[data-boss-theme="dark"] .boss-employee .boss-campaign-title {color:#f8fafc;}
+html[data-boss-theme="dark"] .boss-employee .boss-campaign-meta {color:#cbd5e1;}
+html[data-boss-theme="dark"] .boss-employee .boss-campaign-hint {color:#fde68a;}
+html[data-boss-theme="dark"] .boss-employee .boss-campaign-assignments {border-color:#475569;}
+html[data-boss-theme="dark"] .boss-employee .boss-campaign-assignment {border-color:#334155;}
+html[data-boss-theme="dark"] .boss-employee .boss-campaign-action {background:#123b3c;border-color:#297d79;color:#99f6e4;}
+html[data-boss-theme="dark"] .boss-employee .boss-campaign-action:hover {background:#155e59;color:#f0fdfa;}
+html[data-boss-theme="dark"] .boss-employee .boss-campaign-action--danger {background:#4c1d30;border-color:#9f1239;color:#fecdd3;}
+html[data-boss-theme="dark"] .boss-employee .boss-campaign-action--danger:hover {background:#881337;color:#fff1f2;}
+html[data-boss-theme="dark"] .boss-employee .boss-campaign-status--active {background:#134e4a;color:#99f6e4;border-color:#0f766e;}
+html[data-boss-theme="dark"] .boss-employee .boss-campaign-status--expired {background:#422c14;color:#fde68a;border-color:#92400e;}
+html[data-boss-theme="dark"] .boss-employee .boss-campaign-status--archived {background:#334155;color:#e2e8f0;border-color:#64748b;}

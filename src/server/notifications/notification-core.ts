@@ -155,8 +155,8 @@ export async function scheduledNotificationJobs(db:D1DatabaseLike,epoch:number):
     const due=await rows<{id:string;n:number}>(db,`SELECT p.id,COUNT(*) AS n FROM amb_people p
       JOIN amb_assignments a ON a.ambassador_id=p.id JOIN amb_campaigns c ON c.id=a.campaign_id
       LEFT JOIN amb_submissions s ON s.assignment_id=a.id
-      WHERE p.status='active' AND c.status='active' AND (s.id IS NULL OR s.status='revision_requested')
-      GROUP BY p.id LIMIT 1500`);
+      WHERE p.status='active' AND c.status='active' AND c.due_date>=? AND (s.id IS NULL OR s.status='revision_requested')
+      GROUP BY p.id LIMIT 1500`,day);
     for(const p of due){await queueNotification(db,'ambassador',p.id,'daily',`daily:${day}`,'AGN daily reminder',`You have ${p.n} pending campaign task${Number(p.n)===1?'':'s'}.`);created++;}
     const count=await db.prepare("SELECT COUNT(*) AS n FROM amb_submissions WHERE status='submitted'").first<{n:number}>();
     if(Number(count?.n)){

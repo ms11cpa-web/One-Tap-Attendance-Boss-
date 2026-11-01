@@ -5,7 +5,6 @@ import {
   LayoutDashboard,
   Clock,
   FileCheck2,
-  CalendarDays,
   Menu,
   X,
   Users,
@@ -15,6 +14,7 @@ import {
   Palmtree,
   Laptop,
   GraduationCap,
+  ContactRound,
 } from 'lucide-react';
 
 interface MobileNavProps {
@@ -109,15 +109,15 @@ export const MobileNav: React.FC<MobileNavProps> = ({
         </button>
 
         <button
-          onClick={() => handleSelect('calendar')}
+          onClick={() => handleSelect('crm')}
           className={`flex flex-col items-center justify-center p-2 rounded-xl text-[10px] font-medium transition cursor-pointer ${
-            currentTab === 'calendar'
+            currentTab === 'crm'
               ? 'text-teal-400 font-bold'
               : 'text-slate-400 hover:text-slate-200'
           }`}
         >
-          <CalendarDays className="w-5 h-5 mb-0.5" />
-          <span>Calendar</span>
+          <ContactRound className="w-5 h-5 mb-0.5" />
+          <span>Leads</span>
         </button>
 
         <button

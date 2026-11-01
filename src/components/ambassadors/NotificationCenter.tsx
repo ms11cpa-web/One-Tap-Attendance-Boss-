@@ -9,18 +9,32 @@ type Snapshot={preferences:Pref;notifications:Notice[];unread:number;push_availa
 const prefsLabels:[keyof Pref,string][]=[['daily_reminder','Daily 7 PM reminder (only for pending tasks or reviews)'],['task_enabled','Task assignments and submissions'],['deadline_enabled','Deadline approaching'],['review_enabled','Approvals and revision requests'],['sound_enabled','In-app tong sound']];
 function decodeKey(key:string):Uint8Array {return Uint8Array.from(atob(key.replace(/-/g,'+').replace(/_/g,'/')+'='.repeat((4-key.length%4)%4)),c=>c.charCodeAt(0));}
 async function tong(){
-  try {const Ctx=window.AudioContext;if(!Ctx)return;const context=new Ctx();await context.resume();const osc=context.createOscillator();const gain=context.createGain();
-    osc.type='sine';osc.frequency.setValueAtTime(880,context.currentTime);osc.frequency.exponentialRampToValueAtTime(660,context.currentTime+0.18);
-    gain.gain.setValueAtTime(0.001,context.currentTime);gain.gain.exponentialRampToValueAtTime(0.09,context.currentTime+0.02);
-    gain.gain.exponentialRampToValueAtTime(0.001,context.currentTime+0.25);osc.connect(gain);gain.connect(context.destination);
-    osc.start();osc.stop(context.currentTime+0.27);osc.onended=()=>{void context.close();};
-  }catch{ /* Browser sound policy or silent mode takes precedence. */ }
+  try {
+    const Ctx=window.AudioContext;if(!Ctx)return;
+    const context=new Ctx();await context.resume();
+    // Two struck-bell tones. Respect user's device volume and avoid digital clipping.
+    const volume=Number(window.localStorage.getItem('boss_agn_chime_volume')||'2');
+    if(volume===0){await context.close();return;}
+    const peak=Math.min(0.28,volume===1?0.10:volume===2?0.20:0.28);
+    [0,0.19].forEach((delay,i)=>{
+      const t=context.currentTime+delay;
+      const osc=context.createOscillator(),gain=context.createGain();
+      osc.type='triangle';osc.frequency.setValueAtTime(i?1046:880,t);
+      osc.frequency.exponentialRampToValueAtTime(i?784:659,t+0.25);
+      gain.gain.setValueAtTime(0.001,t);
+      gain.gain.exponentialRampToValueAtTime(peak,t+0.012);
+      gain.gain.exponentialRampToValueAtTime(0.001,t+0.36);
+      osc.connect(gain);gain.connect(context.destination);osc.start(t);osc.stop(t+0.38);
+    });
+    window.setTimeout(()=>void context.close(),900);
+  }catch{ /* Device silent mode, browser sound policy and OS volume take precedence. */ }
 }
 
 export const NotificationCenter:React.FC<{owner:Owner;dark?:boolean}>=({owner,dark=false})=>{
   const base=`/api/ambassadors/notifications/${owner}/`;
   const [data,setData]=useState<Snapshot|null>(null),[open,setOpen]=useState(false),[busy,setBusy]=useState(false),[message,setMessage]=useState('');
   const previous=useRef<string|null>(null),settings=useRef<Pref|null>(null);
+  const [chimeVolume,setChimeVolume]=useState(()=>{try{return Number(window.localStorage.getItem('boss_agn_chime_volume')||'2');}catch{return 2;}});
   const refresh=useCallback(async()=>{
     try{const next=await apiRequest<Snapshot>(base+'state');
       const latest=next.notifications[0]?.id||'';
@@ -80,6 +94,7 @@ export const NotificationCenter:React.FC<{owner:Owner;dark?:boolean}>=({owner,da
         <button type="button" disabled={busy} onClick={()=>void (Number(data.preferences.push_enabled)?disablePush():enablePush())} className="rounded-lg px-3 py-2 text-xs bg-teal-600 text-white">{Number(data.preferences.push_enabled)?'Disable phone push':'Enable phone push on this device'}</button>:
         <p className="text-xs opacity-70">Phone push will be available after the administrator configures VAPID keys. In-app notifications still work.</p>}
         <button type="button" disabled={busy} onClick={async()=>{setBusy(true);try{await apiRequest(base+'test',{method:'POST',body:'{}'});setMessage('Test queued. If phone push is enabled, it should arrive shortly.');await refresh();}catch(e){setMessage(e instanceof Error?e.message:'Test failed');}finally{setBusy(false);}}} className="text-xs underline">Send test notification</button>
+        <label className="text-xs flex items-center gap-1">Chime volume <select className="rounded-md border dark:border-slate-600 bg-white dark:bg-slate-900 px-2 py-1" value={chimeVolume} onChange={e=>{const v=Number(e.target.value);setChimeVolume(v);window.localStorage.setItem('boss_agn_chime_volume',String(v));}}><option value={0}>Off</option><option value={1}>Soft</option><option value={2}>Loud</option><option value={3}>Extra loud</option></select></label>
         <button type="button" onClick={()=>void tong()} className="text-xs flex gap-1 items-center underline">{Number(data.preferences.sound_enabled)?<Volume2 size={14}/>:<VolumeX size={14}/>} Test tong sound</button>
       </div>
       <p className="text-xs opacity-70">Android and supported browsers can display push outside Boss. On iPhone, add Boss to the Home Screen first. Device settings control external notification sounds. Quiet hours: no automatic reminders overnight.</p>

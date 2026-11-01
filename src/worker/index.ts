@@ -5,6 +5,7 @@ import { handleBootstrapRequest } from './bootstrap.ts';
 import { handleAmbassadorRequest } from '../server/routes/ambassadors.ts';
 import { notificationApi, scheduledNotificationJobs, deliverPendingPush } from '../server/notifications/notification-core.ts';
 import type { PushSecrets } from '../server/notifications/web-push.ts';
+import { handleCrmRequest } from '../server/crm/router.ts';
 import { closePreviousOpenShifts } from '../server/utils/attendance-rollover.ts';
 import { getDhakaDateString, getDhakaTimeString } from '../server/utils/time.ts';
 
@@ -28,6 +29,7 @@ export default {
       const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
       const token = (bearerMatch ? bearerMatch[1] : undefined) || (tokenMatch ? tokenMatch[1] : undefined);
       const ambassadorToken = cookieHeader.match(/(?:^|;\s*)boss_ambassador_session=([^;]+)/)?.[1];
+      const commissionToken = cookieHeader.match(/(?:^|;\s*)boss_commission_session=([^;]+)/)?.[1];
 
       const query: Record<string, string> = {};
       url.searchParams.forEach((val, key) => {
@@ -62,6 +64,8 @@ export default {
         // router, which queries the sessions table.
         if (url.pathname.startsWith('/api/bootstrap/')) {
           apiRes = await handleBootstrapRequest(request.method, url.pathname, body, env);
+        } else if (url.pathname.startsWith('/api/crm/') || url.pathname.startsWith('/api/ambassadors/crm/')) {
+          apiRes = await handleCrmRequest(request.method,url.pathname.startsWith('/api/ambassadors/crm/') ? url.pathname.replace('/api/ambassadors/crm/','/api/crm/') : url.pathname,body,{officeToken:(url.pathname.startsWith('/api/ambassadors/crm/')||url.pathname.startsWith('/api/crm/agent/'))?undefined:token,ambassadorToken:url.pathname.startsWith('/api/ambassadors/crm/')?ambassadorToken:undefined,commissionToken,query},env.DB);
         } else if (url.pathname.startsWith('/api/ambassadors/notifications/')) {
           apiRes = await notificationApi(request.method,url.pathname,body,{token,ambassadorToken},env.DB,env);
         } else if (url.pathname.startsWith('/api/ambassadors/')) {
@@ -111,7 +115,7 @@ export default {
         context.waitUntil(deliverPendingPush(env.DB,env,24).catch(err=>console.warn('[AGN push]',err instanceof Error?err.message:'unknown')));
       }
       const headers = new Headers(apiRes.headers || {});
-      if (url.pathname.startsWith('/api/ambassadors/')) headers.set('Cache-Control', 'no-store');
+      if (url.pathname.startsWith('/api/ambassadors/') || url.pathname.startsWith('/api/crm/')) headers.set('Cache-Control', 'no-store');
       if (!headers.has('Content-Type') && !apiRes.binary) {
         headers.set('Content-Type', 'application/json');
       }

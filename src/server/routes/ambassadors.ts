@@ -7,6 +7,7 @@ import { getUserFromSession, logAudit } from './api-handler.ts';
 import { hashPassword, verifyPassword, generateSessionToken } from '../auth/crypto.ts';
 import { hashRecoveryCode } from '../auth/recovery.ts';
 import { getDhakaDateString } from '../utils/time.ts';
+import { campaignAcceptsWork } from '../../utils/campaign-deadline.ts';
 import { calculateMonthlyPerformance, monthWindow, winnerEligible, type EligibleTask } from '../utils/ambassador-performance.ts';
 import { queueAmbassadors, queueManagers } from '../notifications/notification-core.ts';
 
@@ -76,8 +77,8 @@ export async function handleAmbassadorRequest(
       const campuses = await getRows(db, 'SELECT * FROM amb_campuses ORDER BY name');
       const people = await getRows(db, `SELECT p.id,p.ambassador_code,p.name,p.email,p.department,p.campus_id,p.is_lead,p.status,p.must_change_password,c.name AS campus_name
         FROM amb_people p JOIN amb_campuses c ON c.id=p.campus_id ORDER BY p.ambassador_code COLLATE NOCASE`);
-      const campaigns = await getRows(db, `SELECT c.*, (SELECT COUNT(*) FROM amb_assignments a WHERE a.campaign_id=c.id) AS assignments
-        FROM amb_campaigns c ORDER BY c.created_at DESC`);
+      const campaigns = await getRows(db, `SELECT c.*, CASE WHEN c.status='archived' THEN 'archived' WHEN c.due_date < ? THEN 'expired' ELSE 'active' END AS effective_status, (SELECT COUNT(*) FROM amb_assignments a WHERE a.campaign_id=c.id) AS assignments
+        FROM amb_campaigns c ORDER BY c.created_at DESC`, getDhakaDateString());
       const submissions = await getRows(db, `SELECT s.id,s.assignment_id,s.proof_url,s.notes,s.status,s.submitted_at,s.reviewed_at,s.review_note,s.quality_score,
         p.name AS ambassador_name,p.email AS ambassador_email,p.campus_id,c.title AS campaign_title,c.points,c.due_date
         FROM amb_submissions s JOIN amb_assignments a ON a.id=s.assignment_id
@@ -252,8 +253,8 @@ export async function handleAmbassadorRequest(
     if (path === '/api/ambassadors/admin/campaigns/edit' && verb === 'POST') {
       const id=input(body.id,90),title=input(body.title,140),instructions=input(body.instructions,1800),
         type=input(body.content_type,18),due=input(body.due_date,10),points=Number(body.points);
-      if(title.length<5||instructions.length<12||!['share','post','video','outreach','event','other'].includes(type)||!validDate(due)||!Number.isInteger(points)||points<0||points>100)
-        return error(400,'Invalid campaign details.');
+      if(title.length<5||instructions.length<12||!['share','post','video','outreach','event','other'].includes(type)||!validDate(due)||due<getDhakaDateString()||!Number.isInteger(points)||points<0||points>100)
+        return error(400,'Campaign details must be valid and the due date cannot be in the past (Dhaka time).');
       const c=await db.prepare('SELECT * FROM amb_campaigns WHERE id=?').bind(id).first<Record<string,unknown>>();
       if(!c)return error(404,'Campaign not found.');
       const count=await db.prepare('SELECT COUNT(*) AS n FROM amb_submissions s JOIN amb_assignments a ON a.id=s.assignment_id WHERE a.campaign_id=?').bind(id).first<{n:number}>();
@@ -265,8 +266,9 @@ export async function handleAmbassadorRequest(
     if (path === '/api/ambassadors/admin/campaigns/archive' && verb === 'POST') {
       const id=input(body.id,90),status=input(body.status,15);
       if(!['active','archived'].includes(status))return error(400,'Invalid status.');
-      const c=await db.prepare('SELECT id FROM amb_campaigns WHERE id=?').bind(id).first();
+      const c=await db.prepare('SELECT id,due_date,status FROM amb_campaigns WHERE id=?').bind(id).first<{id:string;due_date:string;status:string}>();
       if(!c)return error(404,'Campaign not found.');
+      if(status==='active'&&!campaignAcceptsWork('active',c.due_date,getDhakaDateString())) return error(409,'This deadline has passed. Create a new campaign instead of restoring an expired task.');
       await db.prepare('UPDATE amb_campaigns SET status=? WHERE id=?').bind(status,id).run();
       await logAudit(db,staff,'CAMPAIGN_STATUS','amb_campaign',id,{status},ctx.ip);return ok({success:true});
     }
@@ -284,9 +286,9 @@ export async function handleAmbassadorRequest(
     }
     if (path === '/api/ambassadors/admin/assignments/add' && verb === 'POST') {
       const campaignId=input(body.campaign_id,90),ambassadorId=input(body.ambassador_id,90);
-      const camp=await db.prepare("SELECT id,status FROM amb_campaigns WHERE id=?").bind(campaignId).first<{id:string;status:string}>();
+      const camp=await db.prepare("SELECT id,status,due_date FROM amb_campaigns WHERE id=?").bind(campaignId).first<{id:string;status:string;due_date:string}>();
       const person=await db.prepare("SELECT id FROM amb_people WHERE id=? AND status='active'").bind(ambassadorId).first();
-      if(!camp||camp.status!=='active'||!person)return error(400,'Select an active task and ambassador.');
+      if(!camp||!person||!campaignAcceptsWork(camp.status,camp.due_date,getDhakaDateString())) return error(409,'Select an active campaign with an unexpired deadline and an active ambassador.');
       const exists=await db.prepare('SELECT id FROM amb_assignments WHERE campaign_id=? AND ambassador_id=?').bind(campaignId,ambassadorId).first();
       if(exists)return error(409,'Already assigned.');
       const id=uid();await db.prepare('INSERT INTO amb_assignments(id,campaign_id,ambassador_id,assigned_at) VALUES(?,?,?,?)').bind(id,campaignId,ambassadorId,Date.now()).run();
@@ -296,8 +298,9 @@ export async function handleAmbassadorRequest(
     }
     if (path === '/api/ambassadors/admin/assignments/reassign' && verb === 'POST') {
       const id=input(body.id,90),personId=input(body.ambassador_id,90);
-      const original=await db.prepare('SELECT id,campaign_id,ambassador_id FROM amb_assignments WHERE id=?').bind(id).first<{id:string;campaign_id:string;ambassador_id:string}>();
+      const original=await db.prepare('SELECT a.id,a.campaign_id,a.ambassador_id,c.status AS campaign_status,c.due_date FROM amb_assignments a JOIN amb_campaigns c ON c.id=a.campaign_id WHERE a.id=?').bind(id).first<{id:string;campaign_id:string;ambassador_id:string;campaign_status:string;due_date:string}>();
       if(!original)return error(404,'Assignment not found.');
+      if(!campaignAcceptsWork(original.campaign_status,original.due_date,getDhakaDateString())) return error(409,'Expired or archived assignments cannot be reassigned.');
       const target=await db.prepare("SELECT id FROM amb_people WHERE id=? AND status='active'").bind(personId).first();
       if(!target)return error(400,'Choose an active ambassador.');
       const proof=await db.prepare('SELECT id FROM amb_submissions WHERE assignment_id=?').bind(id).first();
@@ -381,8 +384,8 @@ export async function handleAmbassadorRequest(
       const contentType=input(body.content_type,18), scope=input(body.target_scope,15), targetId=input(body.target_id,90);
       const dueDate=input(body.due_date,10), points=Number(body.points);
       if (title.length < 5 || instructions.length < 12 || !['share','post','video','outreach','event','other'].includes(contentType)
-          || !['all','campus','individual'].includes(scope) || !validDate(dueDate)
-          || !Number.isInteger(points) || points < 0 || points > 100) return error(400,'Check campaign title, instructions, type, target, due date and points (0–100).');
+          || !['all','campus','individual'].includes(scope) || !validDate(dueDate) || dueDate < getDhakaDateString()
+          || !Number.isInteger(points) || points < 0 || points > 100) return error(400,'Campaign deadline must be today or later in Asia/Dhaka; also check title, instructions, type, target and points (0–100).');
       if (scope !== 'all' && !targetId) return error(400,'Select a target campus or ambassador.');
       const whoQuery = scope === 'all' ? "SELECT id FROM amb_people WHERE status='active'"
         : scope === 'campus' ? "SELECT id FROM amb_people WHERE status='active' AND campus_id=?"
@@ -453,15 +456,15 @@ export async function handleAmbassadorRequest(
   if (Number(member.must_change_password)) return error(403,'Change your temporary password before accessing tasks.');
 
   if (path === '/api/ambassadors/tasks' && verb === 'GET') {
-    const tasks = await getRows(db,`SELECT a.id AS assignment_id,c.title,c.instructions,c.content_type,c.points,c.due_date,c.status AS campaign_status,
+    const today = getDhakaDateString();
+    const tasks = await getRows(db,`SELECT a.id AS assignment_id,c.title,c.instructions,c.content_type,c.points,c.due_date,CASE WHEN c.status='archived' THEN 'archived' WHEN c.due_date < ? THEN 'expired' ELSE 'active' END AS campaign_status,
       s.id AS submission_id,s.proof_url,s.notes,s.status AS submission_status,s.review_note,s.quality_score,s.submitted_at
       FROM amb_assignments a JOIN amb_campaigns c ON c.id=a.campaign_id
-      LEFT JOIN amb_submissions s ON s.assignment_id=a.id WHERE a.ambassador_id=? ORDER BY c.due_date DESC,c.created_at DESC`,member.id);
+      LEFT JOIN amb_submissions s ON s.assignment_id=a.id WHERE a.ambassador_id=? ORDER BY c.due_date DESC,c.created_at DESC`,today,member.id);
     const campusProgress = Number(member.is_lead) ? await db.prepare(`SELECT COUNT(DISTINCT a.id) AS assigned,
       COUNT(DISTINCT CASE WHEN s.status='approved' THEN a.id END) AS approved
       FROM amb_assignments a JOIN amb_people p ON p.id=a.ambassador_id
       LEFT JOIN amb_submissions s ON s.assignment_id=a.id WHERE p.campus_id=?`).bind(member.campus_id).first() : null;
-    const today = getDhakaDateString();
     const period=monthWindow(today.slice(0,7),today);
     const performanceTasks = period.cutoff >= period.start ? await getRows<EligibleTask>(db,
       `SELECT c.due_date,c.points,s.status,s.quality_score,s.submitted_at
@@ -476,10 +479,10 @@ export async function handleAmbassadorRequest(
   if (path === '/api/ambassadors/submit' && verb === 'POST') {
     const assignmentId=input(body.assignment_id,90),url=input(body.proof_url,1501),notes=input(body.notes,1000);
     if (!validProof(url)) return error(400,'Use a valid HTTPS proof URL (max 1500 characters).');
-    const assignment = await db.prepare(`SELECT a.id,c.status AS campaign_status FROM amb_assignments a JOIN amb_campaigns c ON c.id=a.campaign_id
-      WHERE a.id=? AND a.ambassador_id=?`).bind(assignmentId,member.id).first<{id:string;campaign_status:string}>();
+    const assignment = await db.prepare(`SELECT a.id,c.status AS campaign_status,c.due_date FROM amb_assignments a JOIN amb_campaigns c ON c.id=a.campaign_id
+      WHERE a.id=? AND a.ambassador_id=?`).bind(assignmentId,member.id).first<{id:string;campaign_status:string;due_date:string}>();
     if (!assignment) return error(404,'Assigned task not found.');
-    if (assignment.campaign_status !== 'active') return error(409,'This campaign has been archived.');
+    if (!campaignAcceptsWork(assignment.campaign_status,assignment.due_date,getDhakaDateString())) return error(409,'Submission closed: this campaign is archived or its Dhaka-time deadline has passed. Contact your programme manager for a new campaign.');
     const old = await db.prepare('SELECT id,status,revisions FROM amb_submissions WHERE assignment_id=?').bind(assignmentId)
       .first<{id:string;status:string;revisions:number}>();
     const now=Date.now();

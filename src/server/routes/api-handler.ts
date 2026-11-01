@@ -1392,6 +1392,13 @@ export async function handleApiRequest(
       return {status:400,data:{error:'Correction date must be a real, non-future date during employment.'}};
     if (!['in_time','out_time','both'].includes(correctionType))
       return {status:400,data:{error:'Invalid correction type.'}};
+    // Never substitute a default time for a one-sided request.
+    if ((correctionType === 'in_time' || correctionType === 'both') && !requestedInTime)
+      return {status:400,data:{error:'Specify the requested IN time.'}};
+    if ((correctionType === 'out_time' || correctionType === 'both') && !requestedOutTime)
+      return {status:400,data:{error:'Specify the requested OUT time.'}};
+    if ((correctionType === 'in_time' && requestedOutTime) || (correctionType === 'out_time' && requestedInTime))
+      return {status:400,data:{error:'A one-sided correction may not change the other punch.'}};
     if (requestedInTime && !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(requestedInTime))
       return {status:400,data:{error:'Invalid requested IN time.'}};
     if (requestedOutTime && !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(requestedOutTime))
@@ -1445,55 +1452,58 @@ export async function handleApiRequest(
     if (corr.status !== 'pending') return { status: 400, data: { error: 'Request is already processed.' } };
 
     if (action === 'approved') {
-      // Safely apply correction to attendance_records
+      // Only the requested side can be modified. Read live attendance rather than
+      // trusting the time snapshot from when the employee submitted the request.
       const attDate = String(corr.attendance_date);
       const targetUserId = String(corr.user_id);
-      const targetIn = (corr.requested_in_time as string) || (corr.original_in_time as string) || '';
-      const targetOut = (corr.requested_out_time as string) || (corr.original_out_time as string) || '';
-      // A correction must supply the missing time: never fabricate 11 AM or 7 PM.
-      if (!targetIn || !targetOut)
-        return {status:400,data:{error:'Both IN and OUT times must be recorded before this correction can be approved.'}};
-      const validationError = validateAttendanceAdjustment(attDate,todayDateStr,{inTime:targetIn,outTime:targetOut,reason:String(corr.explanation || '')},false);
-      if (validationError) return {status:400,data:{error:validationError}};
-
-      const totalMins = Math.floor((Date.parse(`${attDate}T${targetOut}:00+06:00`) + (targetOut < targetIn ? 86400000 : 0) - Date.parse(`${attDate}T${targetIn}:00+06:00`)) / 60000);
-      const lateMins = calculateLateness(targetIn, '11:00', 15);
-      const extraMins = calculateExtraMinutes(targetOut, '19:00');
-
-      const status = totalMins < 240 ? 'half_day' : (lateMins > 0 ? 'late' : 'present');
-
-      // Check if existing record exists
-      const existing = await db
-        .prepare('SELECT id FROM attendance_records WHERE user_id = ? AND attendance_date = ?')
-        .bind(targetUserId, attDate)
-        .first<{ id: string }>();
-
-      if (existing) {
-        await db
-          .prepare(`
-            UPDATE attendance_records
-            SET in_time = ?, out_time = ?, in_timestamp = ?, out_timestamp = ?,
-                in_verified = 0, out_verified = 0,
-                in_latitude = NULL, in_longitude = NULL, out_latitude = NULL, out_longitude = NULL,
-                in_accuracy_meters = NULL, out_accuracy_meters = NULL,
-                in_distance_meters = NULL, out_distance_meters = NULL,
-                total_duration_minutes = ?, late_minutes = ?, extra_minutes = ?, status = ?, updated_at = ?
-            WHERE id = ?
-          `)
-          .bind(targetIn, targetOut, Date.parse(`${attDate}T${targetIn}:00+06:00`), Date.parse(`${attDate}T${targetOut}:00+06:00`) + (targetOut < targetIn ? 86400000 : 0), totalMins, lateMins, extraMins, status, Date.now(), existing.id)
-          .run();
-      } else {
-        const newAttId = 'att_' + targetUserId + '_' + attDate.replace(/-/g, '');
-        await db
-          .prepare(`
-            INSERT INTO attendance_records (
-              id, user_id, attendance_date, work_mode, in_time, out_time, in_timestamp, out_timestamp,
-              in_verified, out_verified, total_duration_minutes, late_minutes,
-              extra_minutes, status, created_at, updated_at
-            ) VALUES (?, ?, ?, 'office', ?, ?, ?, ?, 0, 0, ?, ?, ?, ?, ?, ?)
-          `)
-          .bind(newAttId, targetUserId, attDate, targetIn, targetOut, Date.parse(`${attDate}T${targetIn}:00+06:00`), Date.parse(`${attDate}T${targetOut}:00+06:00`) + (targetOut < targetIn ? 86400000 : 0), totalMins, lateMins, extraMins, status, Date.now(), Date.now())
-          .run();
+      const existing = await db.prepare('SELECT * FROM attendance_records WHERE user_id=? AND attendance_date=?')
+        .bind(targetUserId,attDate).first<Record<string,unknown>>();
+      const kind=String(corr.correction_type);
+      const changeIn=kind==='in_time'||kind==='both';
+      const changeOut=kind==='out_time'||kind==='both';
+      const newIn=changeIn?String(corr.requested_in_time||''):String(existing?.in_time||'');
+      const newOut=changeOut?String(corr.requested_out_time||''):String(existing?.out_time||'');
+      if((changeIn&&!newIn)||(changeOut&&!newOut))return {status:400,data:{error:'The requested punch time is missing.'}};
+      // An OUT-only request cannot create a completed record without a verified IN.
+      // Likewise, no automatic 19:00 OUT is invented for an IN-only request.
+      if(changeOut&&!newIn)return {status:409,data:{error:'No clock IN exists for this date. Record IN first or request a Super Admin adjustment; OUT is not assumed.'}};
+      const validationError = validateAttendanceAdjustment(attDate,todayDateStr,
+        {inTime:newIn,outTime:newOut||null,reason:String(corr.explanation||'')},false);
+      if(validationError)return {status:400,data:{error:validationError}};
+      const inTs=newIn?Date.parse(`${attDate}T${newIn}:00+06:00`):null;
+      const outTs=newOut?Date.parse(`${attDate}T${newOut}:00+06:00`)+(newIn&&newOut<newIn?86400000:0):null;
+      const totalMins=(inTs!==null&&outTs!==null)?Math.floor((outTs-inTs)/60000):0;
+      if(totalMins<0||totalMins>1440)return {status:400,data:{error:'Attendance duration must be within 24 hours.'}};
+      const lateMins=newIn?calculateLateness(newIn,'11:00',15):0;
+      const extraMins=newOut?calculateExtraMinutes(newOut,'19:00'):0;
+      const status=!newOut?'missing_out':totalMins<240?'half_day':lateMins>0?'late':'present';
+      if(existing){
+        await db.prepare(`UPDATE attendance_records SET
+          in_time=?,out_time=?,
+          in_timestamp=CASE WHEN ?=1 THEN ? ELSE in_timestamp END,
+          out_timestamp=CASE WHEN ?=1 THEN ? ELSE out_timestamp END,
+          in_verified=CASE WHEN ?=1 THEN 0 ELSE in_verified END,
+          out_verified=CASE WHEN ?=1 THEN 0 ELSE out_verified END,
+          in_latitude=CASE WHEN ?=1 THEN NULL ELSE in_latitude END,
+          in_longitude=CASE WHEN ?=1 THEN NULL ELSE in_longitude END,
+          in_accuracy_meters=CASE WHEN ?=1 THEN NULL ELSE in_accuracy_meters END,
+          in_distance_meters=CASE WHEN ?=1 THEN NULL ELSE in_distance_meters END,
+          out_latitude=CASE WHEN ?=1 THEN NULL ELSE out_latitude END,
+          out_longitude=CASE WHEN ?=1 THEN NULL ELSE out_longitude END,
+          out_accuracy_meters=CASE WHEN ?=1 THEN NULL ELSE out_accuracy_meters END,
+          out_distance_meters=CASE WHEN ?=1 THEN NULL ELSE out_distance_meters END,
+          total_duration_minutes=?,late_minutes=?,extra_minutes=?,status=?,updated_at=? WHERE id=?`)
+         .bind(newIn||null,newOut||null,changeIn?1:0,inTs,changeOut?1:0,outTs,
+           changeIn?1:0,changeOut?1:0,...Array(4).fill(changeIn?1:0),...Array(4).fill(changeOut?1:0),
+           totalMins,lateMins,extraMins,status,Date.now(),existing.id).run();
+      }else{
+        const newAttId='att_'+targetUserId+'_'+attDate.replace(/-/g,'');
+        await db.prepare(`INSERT INTO attendance_records
+          (id,user_id,attendance_date,work_mode,in_time,out_time,in_timestamp,out_timestamp,
+           in_verified,out_verified,total_duration_minutes,late_minutes,extra_minutes,status,created_at,updated_at)
+          VALUES(?,?,?,'office',?,?,?,?,0,0,?,?,?,?,?,?)`)
+         .bind(newAttId,targetUserId,attDate,newIn||null,newOut||null,inTs,outTs,
+           totalMins,lateMins,extraMins,status,Date.now(),Date.now()).run();
       }
 
       await db

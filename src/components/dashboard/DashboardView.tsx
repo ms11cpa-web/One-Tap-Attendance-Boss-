@@ -260,10 +260,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <p className="text-xs text-slate-500">{new Intl.DateTimeFormat('en-US',{month:'long',year:'numeric',timeZone:'Asia/Dhaka'}).format(new Date())} performance</p>
           </div>
           <button
-            onClick={() => onNavigateTab('calendar')}
+            onClick={() => onNavigateTab('history')}
             className="text-xs font-semibold text-teal-700 hover:text-teal-800 flex items-center gap-1 cursor-pointer"
           >
-            <span>View Calendar</span>
+            <span>View History</span>
             <ArrowRight className="w-3.5 h-3.5" />
           </button>
         </div>

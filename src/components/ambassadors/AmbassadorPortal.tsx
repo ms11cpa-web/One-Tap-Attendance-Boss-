@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { apiRequest } from '../../api/client';
 import { PasswordInput } from '../auth/PasswordInput';
 import { NotificationCenter } from './NotificationCenter';
+import { CrmWorkspace } from '../crm/CrmWorkspace';
+import { campaignAcceptsWork, dhakaCalendarDate, effectiveCampaignStatus } from '../../utils/campaign-deadline';
 import { ThemeToggle } from '../layout/ThemeToggle';
 import { ArrowLeft, Award, CheckCircle2, GraduationCap, LogOut, Send, ShieldCheck } from 'lucide-react';
 
@@ -20,6 +22,8 @@ export const AmbassadorPortal:React.FC = () => {
   const [code,setCode]=useState('');const [password,setPassword]=useState('');
   const [currentPassword,setCurrentPassword]=useState('');const [newPassword,setNewPassword]=useState('');
   const [data,setData]=useState<TasksData|null>(null);
+  const [dhakaDay,setDhakaDay]=useState(()=>dhakaCalendarDate());
+  useEffect(()=>{const clock=window.setInterval(()=>setDhakaDay(dhakaCalendarDate()),30000);return()=>window.clearInterval(clock);},[]);
   const [fullNote,setFullNote]=useState<{title:string;text:string}|null>(null);
   const [editingPending,setEditingPending]=useState<string|null>(null);
   const [links,setLinks]=useState<Record<string,string>>({}); const [notes,setNotes]=useState<Record<string,string>>({});
@@ -85,6 +89,7 @@ export const AmbassadorPortal:React.FC = () => {
         </form>:
         <>
           <NotificationCenter owner="member" dark />
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl p-4"><CrmWorkspace portal="ambassador" /></div>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3"><div className={card}><p className="text-xs text-slate-400">Assigned tasks</p><p className="text-3xl font-black mt-1">{data?.tasks.length||0}</p></div>
             <div className={card}><p className="text-xs text-slate-400">Approved contributions</p><p className="text-3xl font-black mt-1">{completed.length}</p></div>
             <div className={`${card} col-span-2 sm:col-span-1`}><p className="text-xs text-slate-400">Recognition points</p><p className="text-3xl font-black text-teal-400 mt-1">{points}</p></div></div>
@@ -100,26 +105,27 @@ export const AmbassadorPortal:React.FC = () => {
             <p className="text-xs text-slate-500 mt-2">Provisional: counts deadline days before today in Dhaka, and may change when managers review work. No assigned tasks due yet means Not rated.</p>
           </div>}
           {Number(member.is_lead)===1&&data?.campus_progress&&<div className={card}><p className="font-semibold text-sm">Campus coordination progress</p><p className="text-xs text-slate-400">Campus-wide aggregate: {data.campus_progress.approved} approved of {data.campus_progress.assigned} assigned. No private submissions are shared.</p></div>}
-          <h2 className="text-lg font-bold flex gap-2 items-center"><Award className="text-teal-400"/> Your assignments</h2>
+          <h2 className="text-lg font-bold flex gap-2 items-center"><Award className="text-teal-400"/> Your assignments</h2><p className="text-xs text-slate-400">Deadlines close at 11:59 PM on the due date in Asia/Dhaka. Expired tasks cannot receive new submissions, but earlier work remains reviewable.</p>
           {data?.tasks.length===0&&<div className={card}><p className="text-slate-400 text-sm">No tasks assigned yet. Check back after your programme manager publishes a campaign.</p></div>}
           {data?.tasks.map(t=><article key={t.assignment_id} className={`${card} space-y-3`}>
-            <div className="flex items-start justify-between gap-3"><div><h3 className="font-bold text-lg">{t.title}</h3><p className="text-xs text-slate-400">{t.content_type.toUpperCase()} · Due {t.due_date} · {t.points} points</p></div>
-              <span className={`text-xs px-2.5 py-1 rounded-lg ${t.submission_status==='approved'?'bg-emerald-950 text-emerald-300':t.submission_status==='revision_requested'?'bg-amber-950 text-amber-300':'bg-slate-800 text-slate-300'}`}>{t.submission_status||'Assigned'}</span></div>
+            <div className="flex items-start justify-between gap-3"><div><h3 className="font-bold text-lg">{t.title}</h3><p className="text-xs text-slate-400">{t.content_type.toUpperCase()} · Due {t.due_date} (11:59 PM Dhaka) · {t.points} points</p></div>
+              <span className={`text-xs px-2.5 py-1 rounded-lg ${t.submission_status==='approved'?'bg-emerald-950 text-emerald-300':t.submission_status==='revision_requested'?'bg-amber-950 text-amber-300':'bg-slate-800 text-slate-300'}`}>{t.submission_status==='approved'?'Approved':t.submission_status==='submitted'?'Awaiting review':t.submission_status==='revision_requested'?'Revision requested':effectiveCampaignStatus(t.campaign_status,t.due_date,dhakaDay)==='expired'?'Overdue':effectiveCampaignStatus(t.campaign_status,t.due_date,dhakaDay)==='archived'?'Archived':t.submission_status||'Assigned'}</span></div>
             <p dir="auto" className="text-sm text-slate-300 whitespace-pre-wrap break-words">{t.instructions.length>280?`${t.instructions.slice(0,280)}…`:t.instructions}</p>{t.instructions.length>280&&<button type="button" className="text-sm text-teal-300 underline" onClick={()=>setFullNote({title:t.title,text:t.instructions})}>View full task instructions</button>}
+            {effectiveCampaignStatus(t.campaign_status,t.due_date,dhakaDay)==='expired'&&<p className="rounded-lg border border-amber-700/50 bg-amber-950/30 px-3 py-2 text-sm text-amber-200">Deadline passed. New submissions and edits are closed. {t.submission_status==='submitted'?'Your existing submission remains pending review.':'Contact your programme manager if you need a new assignment.'}</p>}
             {t.submission_status==='approved'?<p className="text-sm text-emerald-300 flex gap-2 items-center"><CheckCircle2 size={17}/> Approved {t.quality_score?`· Quality ${t.quality_score}/5`:''}</p>:null}
             {t.review_note&&<div className="bg-slate-800 rounded-lg p-3"><strong className="text-xs text-teal-300">Manager feedback</strong><p dir="auto" className="text-sm text-slate-200 whitespace-pre-wrap break-words">{t.review_note.length>280?`${t.review_note.slice(0,280)}…`:t.review_note}</p>{t.review_note.length>280&&<button className="text-teal-300 underline text-xs" onClick={()=>setFullNote({title:`Feedback — ${t.title}`,text:t.review_note||''})}>View full feedback</button>}</div>}
             {t.proof_url&&<a className="text-sm text-teal-300 underline break-words block" href={t.proof_url} target="_blank" rel="noopener noreferrer">View your submitted proof ↗</a>}
-            {(!t.submission_status||t.submission_status==='revision_requested'||(t.submission_status==='submitted'&&editingPending===t.assignment_id)) && t.campaign_status==='active'&& <form className="space-y-3 pt-2 border-t border-slate-800" onSubmit={e=>void submitTask(e,t)}>
+            {(!t.submission_status||t.submission_status==='revision_requested'||(t.submission_status==='submitted'&&editingPending===t.assignment_id)) && campaignAcceptsWork(t.campaign_status,t.due_date,dhakaDay)&& <form className="space-y-3 pt-2 border-t border-slate-800" onSubmit={e=>void submitTask(e,t)}>
               <div><label className="block text-xs text-slate-300 mb-1">Public post or Google Drive link (HTTPS)</label><input required type="url" placeholder="https://..." className={inp} value={links[t.assignment_id] ?? t.proof_url ?? ''} onChange={e=>setLinks({...links,[t.assignment_id]:e.target.value})}/></div>
               <div><label className="block text-xs text-slate-300 mb-1">Short description (optional)</label><textarea rows={2} className={inp} value={notes[t.assignment_id] ?? t.notes ?? ''} onChange={e=>setNotes({...notes,[t.assignment_id]:e.target.value})}/></div>
               <button disabled={busy} className={`${btn} flex gap-2 items-center`}><Send size={15}/>{t.submission_status==='revision_requested'?'Resubmit corrected work':t.submission_status==='submitted'?'Save edits for review':'Submit for review'}</button>
             </form>}
-            {t.submission_status==='submitted'&&t.campaign_status==='active'&&<div className="flex flex-wrap gap-3 items-center border-t border-slate-700 pt-3">
+            {t.submission_status==='submitted'&&campaignAcceptsWork(t.campaign_status,t.due_date,dhakaDay)&&<div className="flex flex-wrap gap-3 items-center border-t border-slate-700 pt-3">
               <p className="text-sm text-slate-300 flex-1">Waiting for manager review.</p>
               <button type="button" disabled={busy} className="rounded-lg border border-teal-500 text-teal-300 px-3 py-1.5 text-xs font-semibold disabled:opacity-50" onClick={()=>setEditingPending(v=>v===t.assignment_id?null:t.assignment_id)}>{editingPending===t.assignment_id?'Cancel edit':'Edit submission'}</button>
               <button type="button" disabled={busy} className="rounded-lg border border-rose-700 text-rose-300 px-3 py-1.5 text-xs font-semibold disabled:opacity-50" onClick={()=>void withdrawSubmission(t)}>Withdraw</button>
             </div>}
-            {t.submission_status==='submitted'&&t.campaign_status!=='active'&&<p className="text-sm text-slate-300">Waiting for manager review. This campaign is archived, so edits are disabled.</p>}
+            {t.submission_status==='submitted'&&!campaignAcceptsWork(t.campaign_status,t.due_date,dhakaDay)&&<p className="text-sm text-slate-300">Waiting for manager review. This campaign is closed (expired or archived), so edits are disabled.</p>}
             {t.submission_status==='rejected'&&<p className="text-sm text-rose-300">This submission was rejected. Contact your programme manager for a new assignment.</p>}
           </article>)}
           <p className="text-xs text-slate-500">Point totals include approved tasks only. You are not expected to clock in or share GPS location.</p>

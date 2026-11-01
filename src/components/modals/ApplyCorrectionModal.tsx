@@ -18,9 +18,9 @@ export const ApplyCorrectionModal: React.FC<ApplyCorrectionModalProps> = ({
   );
   const [correctionType, setCorrectionType] = useState<
     'in_time' | 'out_time' | 'both'
-  >('both');
-  const [requestedInTime, setRequestedInTime] = useState('11:00');
-  const [requestedOutTime, setRequestedOutTime] = useState('19:00');
+  >('in_time');
+  const [requestedInTime, setRequestedInTime] = useState('');
+  const [requestedOutTime, setRequestedOutTime] = useState('');
   const [explanation, setExplanation] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
