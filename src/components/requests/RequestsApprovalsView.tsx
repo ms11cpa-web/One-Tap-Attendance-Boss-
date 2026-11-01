@@ -3,6 +3,7 @@ import { useAuth } from '../../context/AuthContext';
 import { apiRequest } from '../../api/client';
 import { LeaveRequest, RemoteRequest, AttendanceCorrection } from '../../types';
 import { formatTime12FromHHMM } from '../../server/utils/time';
+import { SuperAdminAttendanceAdjust } from './SuperAdminAttendanceAdjust';
 import {
   FileCheck2,
   Palmtree,
@@ -77,6 +78,7 @@ export const RequestsApprovalsView: React.FC<RequestsApprovalsViewProps> = ({
   const [actionReason, setActionReason] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
   const [selectedNote, setSelectedNote] = useState<RequestNoteDetails | null>(null);
+  const [showAdminAdjust, setShowAdminAdjust] = useState(false);
 
   // The reader can be dismissed with Escape, just like a conventional dialog.
   useEffect(() => {
@@ -183,6 +185,12 @@ export const RequestsApprovalsView: React.FC<RequestsApprovalsViewProps> = ({
             </button>
           )}
 
+          {subTab === 'corrections' && user?.role === 'super_admin' && (
+            <button type="button" onClick={() => setShowAdminAdjust(true)}
+              className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-2xl border border-teal-500 bg-white text-teal-800 font-bold text-xs hover:bg-teal-50">
+              <Plus className="w-4 h-4"/> Adjust Employee Attendance
+            </button>
+          )}
           {subTab === 'corrections' && (
             <button
               onClick={onOpenCorrectionModal}
@@ -618,6 +626,9 @@ export const RequestsApprovalsView: React.FC<RequestsApprovalsViewProps> = ({
           </>
         )}
       </div>
+
+      {showAdminAdjust && user?.role === 'super_admin' && <SuperAdminAttendanceAdjust
+        onClose={() => setShowAdminAdjust(false)} onSaved={fetchAllRequests} />}
 
       {/* Read-only full request reason / explanation dialog */}
       {selectedNote && (

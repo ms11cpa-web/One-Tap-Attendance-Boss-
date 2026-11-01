@@ -13,6 +13,8 @@ import {
 } from '../utils/time.ts';
 import { verifyLocationGeofence } from '../utils/geo.ts';
 import { generateBossExcelWorkbook } from '../reports/excel.ts';
+import { closePreviousOpenShifts } from '../utils/attendance-rollover.ts';
+import { applyManualAttendanceUpdate, validateAttendanceAdjustment, type ManualAttendanceInput } from '../utils/manual-attendance.ts';
 
 export const REMEMBER_IDLE_MS = 20 * 24 * 60 * 60 * 1000;
 export const SHORT_SESSION_MS = 12 * 60 * 60 * 1000;
@@ -367,6 +369,8 @@ export async function handleApiRequest(
   const dayOfWeek = getDhakaDayOfWeek(todayDateStr);
 
   if (urlPath === '/api/attendance/today' && normalizedMethod === 'GET') {
+    // Calendar-day rollover is server-side, using Asia/Dhaka rather than the phone clock.
+    await closePreviousOpenShifts(db, todayDateStr, user.id);
     const settings = (await db.prepare(`SELECT * FROM office_settings WHERE id = 'default'`).first<Record<string, unknown>>()) || {
       office_latitude: 23.7925,
       office_longitude: 90.4078,
@@ -392,15 +396,12 @@ export async function handleApiRequest(
       .bind(user.id, todayDateStr)
       .first<Record<string, unknown>>();
 
-    // If no record was created today, return a still-open shift from yesterday
-    // so the client can offer Punch OUT across midnight. Expired shifts (>24h)
-    // will still require an attendance correction at the punch-out endpoint.
-    const openPrevious = !attendance ? await db.prepare(`SELECT * FROM attendance_records
-      WHERE user_id=? AND attendance_date < ? AND attendance_date >= ?
-        AND in_timestamp IS NOT NULL AND out_timestamp IS NULL
-      ORDER BY in_timestamp DESC LIMIT 1`)
-      .bind(user.id,todayDateStr,new Date(Date.now()-26*3600_000+6*3600_000).toISOString().slice(0,10))
-      .first<Record<string, unknown>>() : null;
+    // Historical missing-OUT entries remain visible as unresolved notices,
+    // but they are never substituted for today's attendance.
+    const previousMissingOut = await db.prepare(`SELECT attendance_date FROM attendance_records
+      WHERE user_id=? AND attendance_date < ? AND status='missing_out'
+        AND out_time IS NULL AND in_time IS NOT NULL
+      ORDER BY attendance_date DESC LIMIT 1`).bind(user.id,todayDateStr).first<{attendance_date:string}>();
 
     // Check if today is a holiday
     const holiday = await db
@@ -421,7 +422,8 @@ export async function handleApiRequest(
         isHoliday: !!holiday,
         holidayName: holiday ? (holiday as { name: string }).name : null,
         isWeeklyOff,
-        attendance: attendance || openPrevious || null,
+        attendance: attendance || null,
+        previousMissingOutDate: previousMissingOut?.attendance_date || null,
         settings: {
           office_name: settings.office_name,
           office_latitude: settings.office_latitude,
@@ -449,13 +451,9 @@ export async function handleApiRequest(
       grace_period_minutes: 15,
     };
 
-    // A shift started before midnight must be clocked out or corrected first.
-    // Otherwise the one-record-per-day uniqueness rule permits two overlapping
-    // open shifts on consecutive dates, corrupting elapsed totals.
-    const openShift = await db.prepare(`SELECT id,attendance_date FROM attendance_records
-      WHERE user_id=? AND in_timestamp IS NOT NULL AND out_timestamp IS NULL
-      ORDER BY in_timestamp DESC LIMIT 1`).bind(user.id).first<{id:string;attendance_date:string}>();
-    if (openShift) return {status:409,data:{error:`An earlier shift (${openShift.attendance_date}) is still open. Clock OUT or request a correction before punching IN again.`}};
+    // A forgotten OUT from a previous date is recorded as missing_out, not
+    // treated as an active shift on the new calendar day.
+    await closePreviousOpenShifts(db, todayDateStr, user.id);
 
     // Check for existing punch-in today
     const existing = await db
@@ -612,9 +610,11 @@ export async function handleApiRequest(
       scheduled_duration_minutes: 480,
     };
 
+    // OUT is allowed for today's shift only. Previous dates require a
+    // correction, preventing invented multi-day durations after a missed OUT.
     const existing = await db
-      .prepare("SELECT * FROM attendance_records WHERE user_id=? AND out_timestamp IS NULL AND in_time IS NOT NULL AND attendance_date >= ? AND attendance_date <= ? ORDER BY in_timestamp DESC LIMIT 1")
-      .bind(user.id, new Date(Date.now()-26*3600_000+6*3600_000).toISOString().slice(0,10),todayDateStr)
+      .prepare("SELECT * FROM attendance_records WHERE user_id=? AND attendance_date=? AND out_timestamp IS NULL AND in_time IS NOT NULL LIMIT 1")
+      .bind(user.id, todayDateStr)
       .first<Record<string, unknown>>();
 
     if (!existing || !existing.in_time) {
@@ -1304,6 +1304,55 @@ export async function handleApiRequest(
   }
 
   // -------------------------------------------------------------
+  // SUPER ADMIN: DIRECT ATTENDANCE ADJUSTMENT, WITH AUDIT TRAIL
+  // -------------------------------------------------------------
+  if (urlPath === '/api/admin/attendance/record' && normalizedMethod === 'GET') {
+    if (user.role !== 'super_admin') return {status:403,data:{error:'Super Admin only.'}};
+    const employeeId = String(query.employee_id || '').trim().toUpperCase();
+    const date = String(query.date || '');
+    if (!/^[A-Z0-9_-]{1,60}$/.test(employeeId) || !/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(date)))
+      return {status:400,data:{error:'Valid employee ID and attendance date are required.'}};
+    const target = await db.prepare(`SELECT id,employee_id,name,role,joining_date FROM users WHERE UPPER(employee_id)=?`)
+      .bind(employeeId).first<Record<string,unknown>>();
+    if (!target || target.role === 'super_admin') return {status:404,data:{error:'Employee not found.'}};
+    const record = await db.prepare('SELECT * FROM attendance_records WHERE user_id=? AND attendance_date=?')
+      .bind(target.id,date).first<Record<string,unknown>>();
+    return {status:200,data:{employee:target,record:record || null}};
+  }
+
+  if (urlPath === '/api/admin/attendance/adjust' && normalizedMethod === 'PUT') {
+    if (user.role !== 'super_admin') return {status:403,data:{error:'Only Super Admin can directly adjust attendance.'}};
+    const employeeId = String(body.employee_id || '').trim().toUpperCase();
+    const date = String(body.attendance_date || '');
+    const input: ManualAttendanceInput = {
+      inTime: String(body.in_time || ''),
+      outTime: body.out_time ? String(body.out_time) : null,
+      reason: String(body.reason || '').trim(),
+    };
+    const validationError = validateAttendanceAdjustment(date,todayDateStr,input);
+    if (!/^[A-Z0-9_-]{1,60}$/.test(employeeId) || validationError)
+      return {status:400,data:{error:validationError || 'Invalid Employee ID.'}};
+    const target = await db.prepare(`SELECT id,employee_id,name,role,joining_date FROM users WHERE UPPER(employee_id)=?`)
+      .bind(employeeId).first<Record<string,unknown>>();
+    if (!target || target.role === 'super_admin') return {status:404,data:{error:'Employee not found or ineligible.'}};
+    if (date < String(target.joining_date)) return {status:400,data:{error:'Attendance cannot predate employment.'}};
+    const settings = await db.prepare("SELECT work_start_time,work_end_time,grace_period_minutes,scheduled_duration_minutes FROM office_settings WHERE id='default'")
+      .first<Record<string,unknown>>();
+    try {
+      const outcome = await applyManualAttendanceUpdate(db,{
+        targetUserId:String(target.id),date,input,actor:user,ip:context.ip || '127.0.0.1',
+        scheduledStart:String(settings?.work_start_time || '11:00'),
+        scheduledEnd:String(settings?.work_end_time || '19:00'),
+        graceMinutes:Number(settings?.grace_period_minutes ?? 15),
+        scheduledMinutes:Number(settings?.scheduled_duration_minutes ?? 480),
+      });
+      return {status:200,data:{success:true,message:'Attendance adjusted and logged for audit.',recordId:outcome}};
+    } catch (error) {
+      return {status:400,data:{error:error instanceof Error ? error.message : 'Could not adjust attendance.'}};
+    }
+  }
+
+  // -------------------------------------------------------------
   // ATTENDANCE CORRECTIONS
   // -------------------------------------------------------------
   if (urlPath === '/api/corrections' && normalizedMethod === 'GET') {
@@ -1339,6 +1388,14 @@ export async function handleApiRequest(
     if (!attendanceDate || !explanation) {
       return { status: 400, data: { error: 'Please specify the date and explanation for the correction.' } };
     }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(attendanceDate) || Number.isNaN(Date.parse(attendanceDate)) || attendanceDate > todayDateStr || attendanceDate < user.joining_date)
+      return {status:400,data:{error:'Correction date must be a real, non-future date during employment.'}};
+    if (!['in_time','out_time','both'].includes(correctionType))
+      return {status:400,data:{error:'Invalid correction type.'}};
+    if (requestedInTime && !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(requestedInTime))
+      return {status:400,data:{error:'Invalid requested IN time.'}};
+    if (requestedOutTime && !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(requestedOutTime))
+      return {status:400,data:{error:'Invalid requested OUT time.'}};
 
     // Fetch existing attendance record if any
     const existing = await db
@@ -1391,10 +1448,15 @@ export async function handleApiRequest(
       // Safely apply correction to attendance_records
       const attDate = String(corr.attendance_date);
       const targetUserId = String(corr.user_id);
-      const targetIn = (corr.requested_in_time as string) || (corr.original_in_time as string) || '11:00';
-      const targetOut = (corr.requested_out_time as string) || (corr.original_out_time as string) || '19:00';
+      const targetIn = (corr.requested_in_time as string) || (corr.original_in_time as string) || '';
+      const targetOut = (corr.requested_out_time as string) || (corr.original_out_time as string) || '';
+      // A correction must supply the missing time: never fabricate 11 AM or 7 PM.
+      if (!targetIn || !targetOut)
+        return {status:400,data:{error:'Both IN and OUT times must be recorded before this correction can be approved.'}};
+      const validationError = validateAttendanceAdjustment(attDate,todayDateStr,{inTime:targetIn,outTime:targetOut,reason:String(corr.explanation || '')},false);
+      if (validationError) return {status:400,data:{error:validationError}};
 
-      const totalMins = calculateElapsedMinutes(targetIn, targetOut);
+      const totalMins = Math.floor((Date.parse(`${attDate}T${targetOut}:00+06:00`) + (targetOut < targetIn ? 86400000 : 0) - Date.parse(`${attDate}T${targetIn}:00+06:00`)) / 60000);
       const lateMins = calculateLateness(targetIn, '11:00', 15);
       const extraMins = calculateExtraMinutes(targetOut, '19:00');
 
@@ -1410,23 +1472,27 @@ export async function handleApiRequest(
         await db
           .prepare(`
             UPDATE attendance_records
-            SET in_time = ?, out_time = ?, total_duration_minutes = ?, late_minutes = ?,
-                extra_minutes = ?, status = ?, updated_at = ?
+            SET in_time = ?, out_time = ?, in_timestamp = ?, out_timestamp = ?,
+                in_verified = 0, out_verified = 0,
+                in_latitude = NULL, in_longitude = NULL, out_latitude = NULL, out_longitude = NULL,
+                in_accuracy_meters = NULL, out_accuracy_meters = NULL,
+                in_distance_meters = NULL, out_distance_meters = NULL,
+                total_duration_minutes = ?, late_minutes = ?, extra_minutes = ?, status = ?, updated_at = ?
             WHERE id = ?
           `)
-          .bind(targetIn, targetOut, totalMins, lateMins, extraMins, status, Date.now(), existing.id)
+          .bind(targetIn, targetOut, Date.parse(`${attDate}T${targetIn}:00+06:00`), Date.parse(`${attDate}T${targetOut}:00+06:00`) + (targetOut < targetIn ? 86400000 : 0), totalMins, lateMins, extraMins, status, Date.now(), existing.id)
           .run();
       } else {
         const newAttId = 'att_' + targetUserId + '_' + attDate.replace(/-/g, '');
         await db
           .prepare(`
             INSERT INTO attendance_records (
-              id, user_id, attendance_date, work_mode, in_time, out_time,
+              id, user_id, attendance_date, work_mode, in_time, out_time, in_timestamp, out_timestamp,
               in_verified, out_verified, total_duration_minutes, late_minutes,
               extra_minutes, status, created_at, updated_at
-            ) VALUES (?, ?, ?, 'office', ?, ?, 1, 1, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, 'office', ?, ?, ?, ?, 0, 0, ?, ?, ?, ?, ?, ?)
           `)
-          .bind(newAttId, targetUserId, attDate, targetIn, targetOut, totalMins, lateMins, extraMins, status, Date.now(), Date.now())
+          .bind(newAttId, targetUserId, attDate, targetIn, targetOut, Date.parse(`${attDate}T${targetIn}:00+06:00`), Date.parse(`${attDate}T${targetOut}:00+06:00`) + (targetOut < targetIn ? 86400000 : 0), totalMins, lateMins, extraMins, status, Date.now(), Date.now())
           .run();
       }
 

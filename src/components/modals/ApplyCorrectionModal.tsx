@@ -14,7 +14,7 @@ export const ApplyCorrectionModal: React.FC<ApplyCorrectionModalProps> = ({
   onSuccess,
 }) => {
   const [attendanceDate, setAttendanceDate] = useState(
-    new Date().toISOString().split('T')[0]
+    new Intl.DateTimeFormat('en-CA', { timeZone:'Asia/Dhaka', year:'numeric', month:'2-digit', day:'2-digit' }).format(new Date())
   );
   const [correctionType, setCorrectionType] = useState<
     'in_time' | 'out_time' | 'both'
@@ -102,6 +102,7 @@ export const ApplyCorrectionModal: React.FC<ApplyCorrectionModalProps> = ({
             </label>
             <input
               type="date"
+              max={new Intl.DateTimeFormat('en-CA', { timeZone:'Asia/Dhaka', year:'numeric', month:'2-digit', day:'2-digit' }).format(new Date())}
               required
               value={attendanceDate}
               onChange={e => setAttendanceDate(e.target.value)}
@@ -171,8 +172,7 @@ export const ApplyCorrectionModal: React.FC<ApplyCorrectionModalProps> = ({
           </div>
 
           <div className="p-3 rounded-2xl bg-slate-50 border border-slate-100 text-[11px] text-slate-500 leading-relaxed">
-            <strong>Security Notice:</strong> Administrators review original
-            timestamps against requested values before approval.
+            <strong>Late corrections are allowed:</strong> You can submit a request for an earlier day even after midnight. Administrators must review your requested times; no missing OUT time is assumed automatically.
           </div>
 
           <div className="pt-2 flex items-center justify-end gap-2 border-t border-slate-100">

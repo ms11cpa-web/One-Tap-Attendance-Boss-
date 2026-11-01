@@ -29,6 +29,7 @@ interface TodayAttendanceData {
   holidayName: string | null;
   isWeeklyOff: boolean;
   attendance: AttendanceRecord | null;
+  previousMissingOutDate?: string | null;
   settings: Partial<OfficeSettings>;
 }
 
@@ -119,11 +120,28 @@ export const OneTapAttendance: React.FC<OneTapAttendanceProps> = ({
     fetchTodayStatus();
   }, [fetchTodayStatus]);
 
+  // Refresh daily state after Bangladesh midnight without requiring a reload.
   useEffect(() => {
-    if (data && !data.isRemoteApproved) {
-      requestLocation();
-    }
-  }, [data?.isRemoteApproved, requestLocation]);
+    const checkNewDay = () => {
+      const todayInDhaka = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Dhaka', year: 'numeric', month: '2-digit', day: '2-digit'
+      }).format(new Date());
+      if (data?.date && data.date !== todayInDhaka) {
+        setFeedback(null);
+        fetchTodayStatus();
+      }
+    };
+    const interval = window.setInterval(checkNewDay, 30_000);
+    document.addEventListener('visibilitychange', checkNewDay);
+    return () => { window.clearInterval(interval); document.removeEventListener('visibilitychange', checkNewDay); };
+  }, [data?.date, fetchTodayStatus]);
+
+  useEffect(() => {
+    // A new day needs fresh GPS; do not reuse yesterday's cached coordinates.
+    setCoords(null);
+    setEstimatedDistance(null);
+    if (data && !data.isRemoteApproved) requestLocation();
+  }, [data?.date, data?.isRemoteApproved, requestLocation]);
 
   const handlePunchIn = async () => {
     if (actionLoading) return;
@@ -260,7 +278,7 @@ export const OneTapAttendance: React.FC<OneTapAttendanceProps> = ({
   const hasIn = !!attendance?.in_time;
   const hasOut = !!attendance?.out_time;
   const isRemote = hasIn ? attendance?.work_mode === 'remote' : !!data?.isRemoteApproved;
-  const isOvernight = !!(hasIn && attendance?.attendance_date && data?.date && attendance.attendance_date !== data.date);
+
   const maxRadius = data?.settings?.permitted_radius_meters || 300;
 
   const isInsideRadius = estimatedDistance !== null ? estimatedDistance <= maxRadius : null;
@@ -293,9 +311,10 @@ export const OneTapAttendance: React.FC<OneTapAttendanceProps> = ({
           </div>
         </div>
 
-        {isOvernight && <p role="status" className="mb-3 rounded-xl border border-amber-600/60 bg-amber-950/50 px-3 py-2 text-xs font-semibold text-amber-200">
-          You have an open shift from {attendance?.attendance_date}. Please mark OUT for that shift, or request an attendance correction if it is older than 24 hours.
-        </p>}
+        {data?.previousMissingOutDate && <div role="status" className="mb-3 rounded-xl border border-amber-600/60 bg-amber-950/50 px-3 py-3 text-xs font-semibold text-amber-100">
+          Previous attendance ({data.previousMissingOutDate}) is missing an OUT time. Today starts fresh. Please request a correction when possible, or ask Super Admin for an adjustment.
+          <button type="button" onClick={onOpenCorrectionModal} className="ml-2 underline text-teal-200 hover:text-white">Request correction</button>
+        </div>}
         <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight mb-2">
           Hello, {user?.name}
         </h1>

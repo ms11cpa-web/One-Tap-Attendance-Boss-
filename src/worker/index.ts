@@ -5,6 +5,8 @@ import { handleBootstrapRequest } from './bootstrap.ts';
 import { handleAmbassadorRequest } from '../server/routes/ambassadors.ts';
 import { notificationApi, scheduledNotificationJobs, deliverPendingPush } from '../server/notifications/notification-core.ts';
 import type { PushSecrets } from '../server/notifications/web-push.ts';
+import { closePreviousOpenShifts } from '../server/utils/attendance-rollover.ts';
+import { getDhakaDateString, getDhakaTimeString } from '../server/utils/time.ts';
 
 export interface Env extends PushSecrets {
   DB: D1DatabaseLike;
@@ -136,6 +138,10 @@ export default {
   },
   async scheduled(_event: unknown, env: Env, context: {waitUntil(promise:Promise<unknown>):void}):Promise<void> {
     context.waitUntil((async()=>{
+      // Existing hourly cron also handles Bangladesh midnight daily rollover.
+      if (getDhakaTimeString().startsWith('00:')) {
+        await closePreviousOpenShifts(env.DB, getDhakaDateString());
+      }
       await scheduledNotificationJobs(env.DB,Date.now());
       await deliverPendingPush(env.DB,env,80);
     })());
