@@ -11,8 +11,6 @@ import {
   FileSpreadsheet,
   Settings,
   ShieldCheck,
-  Palmtree,
-  Laptop,
   GraduationCap,
   ContactRound,
   BriefcaseBusiness,
@@ -42,8 +40,6 @@ export const MobileNav: React.FC<MobileNavProps> = ({
 
   const moreItems = [
     { id: 'history' as NavTab, label: 'Attendance History', icon: Clock },
-    { id: 'leaves' as NavTab, label: 'Leave Management', icon: Palmtree },
-    { id: 'remote' as NavTab, label: 'Remote Work Requests', icon: Laptop },
     { id: 'reports' as NavTab, label: 'Reports & Excel Export', icon: FileSpreadsheet },
     ...(isAdminOrManager
       ? [{ id: 'employees' as NavTab, label: 'Employee Directory', icon: Users }]

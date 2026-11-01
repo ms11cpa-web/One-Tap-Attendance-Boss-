@@ -10,14 +10,14 @@ import {
   FileSpreadsheet,
   Settings,
   ShieldCheck,
-  Palmtree,
-  Laptop,
   GraduationCap,
   ContactRound,
   BriefcaseBusiness,
   Globe, Facebook, MessageCircle, Mail,
 } from 'lucide-react';
 
+// Retain legacy tab identifiers for backward-compatible internal navigation;
+// the sidebar exposes one unified Requests & Approvals entry.
 export type NavTab =
   | 'dashboard'
   | 'attendance'
@@ -72,22 +72,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
     {
       id: 'requests' as NavTab,
-      label: 'Approvals & Requests',
+      label: 'Requests & Approvals',
       icon: FileCheck2,
       show: true,
       badgeCount: isAdminOrManager ? pendingApprovalsCount : undefined,
-    },
-    {
-      id: 'leaves' as NavTab,
-      label: 'Leave Management',
-      icon: Palmtree,
-      show: true,
-    },
-    {
-      id: 'remote' as NavTab,
-      label: 'Remote Work',
-      icon: Laptop,
-      show: true,
     },
     {
       id: 'employees' as NavTab,
