@@ -15,6 +15,7 @@ const fail = (status:number,error:string):Reply=>({status,data:{error}});
 const success=(data:unknown):Reply=>({status:200,data});
 const str=(v:unknown,max=255)=>String(v??'').trim().slice(0,max);
 const uuid=()=>crypto.randomUUID();
+const daysAfterDhaka=(ts:number,days:number)=>{const d=getDhakaDateString(new Date(ts));const u=new Date(d+'T12:00:00Z');u.setUTCDate(u.getUTCDate()+days);return u.toISOString().slice(0,10);};
 const dateOk=(v:string)=>/^\d{4}-\d\d-\d\d$/.test(v)&&!Number.isNaN(Date.parse(v))&&new Date(v+'T00:00:00Z').toISOString().slice(0,10)===v;
 const rowList=async(db:D1DatabaseLike,sql:string,...vals:unknown[])=>((await db.prepare(sql).bind(...vals).all<Dict>()).results||[]);
 const admin=(a:Actor)=>a.kind==='office'&&['super_admin','hr_admin'].includes(a.role);
@@ -150,25 +151,75 @@ export async function handleCrmRequest(method:string,rawPath:string,body:Dict,ct
     SUM(CASE WHEN p.relationship_status='lead' THEN 1 ELSE 0 END) AS leads,
     SUM(CASE WHEN p.relationship_status IN ('active_client','on_hold','completed') THEN 1 ELSE 0 END) AS clients,
     SUM(CASE WHEN p.relationship_status IN ('lost','closed') THEN 1 ELSE 0 END) AS closed,
-    SUM(CASE WHEN l.next_followup_at IS NOT NULL AND l.next_followup_at < ? AND p.relationship_status NOT IN ('lost','closed') THEN 1 ELSE 0 END) AS overdue
+    SUM(CASE WHEN l.next_followup_at IS NOT NULL AND l.next_followup_at < ? AND p.relationship_status IN ('lead','active_client') AND l.referral_status='approved' AND l.consent_confirmed_at>0 THEN 1 ELSE 0 END) AS overdue
    FROM crm_leads l JOIN crm_lead_profiles p ON p.lead_id=l.id LEFT JOIN users o ON o.id=l.assigned_to_user_id WHERE (${where})`).bind(today,...args).first<Dict>();
    return success({total:Number(m?.total||0),pending:Number(m?.pending||0),leads:Number(m?.leads||0),clients:Number(m?.clients||0),closed:Number(m?.closed||0),overdue:Number(m?.overdue||0)});
+ }
+ // Historical lead import. No auto-approval, no automatic consent, no overwriting existing records.
+ // Each chunk commits atomically. The caller must show a preview before it sends commit=true.
+ if(path==='/api/crm/import'&&verb==='POST'){
+   if(!admin(a))return fail(403,'Only Super Admin / HR Admin may import historical students.');
+   const rows=Array.isArray(body.rows)?body.rows:[];
+   if(rows.length<1||rows.length>50)return fail(400,'Import 1 to 50 rows per batch.');
+   const commit=body.commit===true,confirmed=body.consent_confirmed===true;
+   const file=str(body.filename,150)||'historical-leads.csv';
+   const issues:{row:number;reason:string}[]=[],accepted:Dict[]=[],seen=new Set<string>();
+   for(let i=0;i<rows.length;i++){
+     const input=rows[i]&&typeof rows[i]==='object'?rows[i] as Dict:{};
+     const full_name=str(input.full_name,130),phone=str(input.phone,24),email=str(input.email,180);
+     const normalized=normalizePhone(phone);
+     let reason='';
+     if(full_name.length<2||!validPhone(phone)||!validEmail(email))reason='Name, valid phone or email is missing/invalid';
+     else if(seen.has(normalized))reason='Duplicate telephone within this batch';
+     else if(await db.prepare('SELECT id FROM crm_leads WHERE phone_normalized=?').bind(normalized).first())reason='Possible existing student: matching phone (manual review required)';
+     seen.add(normalized);
+     if(reason)issues.push({row:i+1,reason});
+     else accepted.push({full_name,phone,normalized,email,preferred_countries:str(input.preferred_countries,300),notes:str(input.notes,1500),referrer_display:str(input.referrer_display,150)||'Historical AGN lead sheet'});
+   }
+   if(!commit)return success({accepted:accepted.length,issues,total:rows.length});
+   // Never silently accept a partial batch on confirm. The operator can remove invalid rows.
+   if(issues.length)return {status:409,data:{error:'Correct or remove duplicate/invalid rows before importing.',issues}};
+   const batchId=uuid(),due=confirmed?daysAfterDhaka(now,1):null;
+   const statements=[db.prepare('INSERT INTO crm_import_batches(id,imported_by,source_filename,row_count,created_at) VALUES(?,?,?,?,?)').bind(batchId,a.id,file,accepted.length,now)];
+   for(const r of accepted){
+     const id=uuid();
+     statements.push(db.prepare(`INSERT INTO crm_leads(id,full_name,phone,phone_normalized,email,preferred_countries,referrer_type,referrer_id,referrer_display,created_by_type,created_by_id,consent_confirmed_at,assigned_to_user_id,referral_status,stage,client_status,notes,next_followup_at,created_at,updated_at,import_batch_id)
+       VALUES(?,?,?,?,?,?,'third_party',NULL,?,'office',?, ?,NULL,'pending','New','lead',?,?,?,?,?)`)
+       .bind(id,r.full_name,r.phone,r.normalized,r.email||null,r.preferred_countries,r.referrer_display,a.id,confirmed?now:0,r.notes,due,now,now,batchId));
+     statements.push(db.prepare("INSERT INTO crm_lead_profiles(lead_id,relationship_status,updated_at) VALUES(?,'lead',?)").bind(id,now));
+   }
+   statements.push(db.prepare('INSERT INTO audit_logs(id,user_id,user_name,action,resource_type,resource_id,details,timestamp) VALUES(?,?,?,?,?,?,?,?)')
+     .bind(uuid(),a.id,a.name,'CRM_IMPORT','crm_import',batchId,JSON.stringify({filename:file,rows:accepted.length,consent_confirmed:confirmed}),now));
+   try{await db.batch(statements);}catch{return fail(409,'Import cancelled: one of these students may already exist. No rows in this batch were saved.');}
+   return success({imported:accepted.length,batch_id:batchId,consent_status:confirmed?'confirmed':'unverified'});
+ }
+ // Imported contacts with unknown consent cannot enter the calling queue until verified.
+ if(path==='/api/crm/leads/consent'&&verb==='PUT'){
+   const id=str(body.id,80),lead=await db.prepare('SELECT * FROM crm_leads WHERE id=?').bind(id).first<Dict>();
+   if(!lead)return fail(404,'Student not found.');
+   if(!(await canManageLead(db,a,lead)))return fail(403,'Case-manager permission required.');
+   if(body.confirmed!==true||str(body.evidence,500).length<5)return fail(400,'Confirm lawful permission and describe its source.');
+   await db.batch([
+     db.prepare('UPDATE crm_leads SET consent_confirmed_at=?,next_followup_at=COALESCE(next_followup_at,?),updated_at=? WHERE id=?').bind(now,daysAfterDhaka(now,1),now,id),
+     db.prepare('INSERT INTO crm_lead_history(id,lead_id,action,old_value,new_value,note,actor_type,actor_id,created_at) VALUES(?,?,?,?,?,?,?,?,?)').bind(uuid(),id,'contact_consent_verified',null,JSON.stringify({verified_at:now}),str(body.evidence,500),a.kind,a.id,now)
+   ]);
+   return success({success:true});
  }
  // Office CRM: page through ALL accessible records, without the preview endpoint's 500-row limit.
  if(path==='/api/crm/leads/page'&&verb==='GET'){
    if(a.kind!=='office')return fail(403,'Office sign-in required for the lead register.');
    const filter=str(ctx.query?.filter,12)||'leads';
-   if(!['leads','clients','closed','followups','all'].includes(filter))return fail(400,'Invalid list filter.');
+   if(!['leads','clients','closed','followups','upcoming','all'].includes(filter))return fail(400,'Invalid list filter.');
    const page=Math.max(1,Math.min(100000,Number.parseInt(str(ctx.query?.page,8),10)||1));
    const pageSize=50;
    const q=str(ctx.query?.search,100);
    const {where,args}=scopeWhere(a);
-   const clause=filter==='clients'?"p.relationship_status IN ('active_client','on_hold','completed')":filter==='closed'?"p.relationship_status IN ('lost','closed')":filter==='leads'?"p.relationship_status='lead'":filter==='followups'?"l.next_followup_at IS NOT NULL AND p.relationship_status NOT IN ('lost','closed')":'1=1';
+   const clause=filter==='clients'?"p.relationship_status IN ('active_client','on_hold','completed')":filter==='closed'?"p.relationship_status IN ('lost','closed')":filter==='leads'?"p.relationship_status='lead'":filter==='followups'?"l.next_followup_at IS NOT NULL AND l.next_followup_at <= ? AND p.relationship_status IN ('lead','active_client') AND l.referral_status='approved' AND l.consent_confirmed_at>0":filter==='upcoming'?"l.next_followup_at > ? AND p.relationship_status IN ('lead','active_client') AND l.referral_status='approved' AND l.consent_confirmed_at>0":'1=1';
    const textSql=q?' AND (l.full_name LIKE ? OR l.phone LIKE ? OR l.referrer_display LIKE ? OR l.id LIKE ?)':'';
-   const vals=[...args,...(q?[`%${q}%`,`%${q}%`,`%${q}%`,`%${q}%`]:[])];
+   const vals=[...args,...(['followups','upcoming'].includes(filter)?[getDhakaDateString()]:[]),...(q?[`%${q}%`,`%${q}%`,`%${q}%`,`%${q}%`]:[])];
    const joined=` FROM crm_leads l JOIN crm_lead_profiles p ON p.lead_id=l.id LEFT JOIN users o ON o.id=l.assigned_to_user_id WHERE (${where}) AND (${clause})${textSql}`;
    const count=await db.prepare(`SELECT COUNT(*) AS n${joined}`).bind(...vals).first<{n:number}>();
-   const rows=await rowList(db,`SELECT l.*,p.relationship_status,p.closed_reason,p.closed_at,p.converted_at,p.education_level,p.study_subject,p.target_intake,p.budget_band,p.preferred_contact${joined} ORDER BY ${filter==='followups'?'l.next_followup_at ASC,':''} l.updated_at DESC,l.id DESC LIMIT ? OFFSET ?`,...vals,pageSize,(page-1)*pageSize);
+   const rows=await rowList(db,`SELECT l.*,p.relationship_status,p.closed_reason,p.closed_at,p.converted_at,p.education_level,p.study_subject,p.target_intake,p.budget_band,p.preferred_contact${joined} ORDER BY ${['followups','upcoming'].includes(filter)?'l.next_followup_at ASC,':''} l.updated_at DESC,l.id DESC LIMIT ? OFFSET ?`,...vals,pageSize,(page-1)*pageSize);
    const rights=await delegated(db,a);
    if(!admin(a)&&!rights.leads)rows.forEach(l=>{delete l.notes;delete l.address;});
    return success({rows,total:Number(count?.n||0),page,page_size:pageSize});
@@ -414,8 +465,8 @@ export async function handleCrmRequest(method:string,rawPath:string,body:Dict,ct
    if(!lead)return fail(404,'Referral not found.');
    if(!await canManageLead(db,a,lead))return fail(403,'Only the assigned authorized manager can review this referral.');
    if(lead.referral_status!=='pending')return fail(409,'Referral already reviewed; use the audit workflow for changes.');
-   await db.prepare('UPDATE crm_leads SET referral_status=?,referral_reviewed_by=?,referral_reviewed_at=?,assigned_to_user_id=COALESCE(assigned_to_user_id,?),updated_at=? WHERE id=? AND referral_status=\'pending\'')
-     .bind(result,a.id,now,a.kind==='office'?a.id:null,now,id).run();
+   await db.prepare('UPDATE crm_leads SET referral_status=?,referral_reviewed_by=?,referral_reviewed_at=?,assigned_to_user_id=COALESCE(assigned_to_user_id,?),next_followup_at=CASE WHEN ?=\'approved\' AND consent_confirmed_at>0 AND next_followup_at IS NULL THEN ? ELSE next_followup_at END,updated_at=? WHERE id=? AND referral_status=\'pending\'')
+     .bind(result,a.id,now,a.kind==='office'?a.id:null,result,daysAfterDhaka(now,1),now,id).run();
    await trail(db,id,a,'referral_'+result,{status:'pending'},{status:result},str(body.reason,500));
    return success({success:true});
  }
@@ -437,6 +488,7 @@ export async function handleCrmRequest(method:string,rawPath:string,body:Dict,ct
       stage,client_status:clientStatus,assigned_to_user_id:newOwner,notes:body.notes===undefined?lead.notes:str(body.notes,3000),
       next_followup_at:body.next_followup_at===undefined?lead.next_followup_at:(str(body.next_followup_at,10)||null)};
    if(!validPhone(String(updated.phone))||!validEmail(String(updated.email||''))||updated.next_followup_at&&!dateOk(String(updated.next_followup_at)))return fail(400,'Invalid phone, email or follow-up date.');
+   if(updated.next_followup_at!==lead.next_followup_at&&str(body.change_reason,500).length<5)return fail(400,'Changing a scheduled contact date requires a written reason.');
    try {await db.prepare(`UPDATE crm_leads SET full_name=?,phone=?,phone_normalized=?,email=?,address=?,preferred_countries=?,stage=?,client_status=?,assigned_to_user_id=?,notes=?,next_followup_at=?,updated_at=? WHERE id=?`)
      .bind(updated.full_name,updated.phone,normalizePhone(String(updated.phone)),updated.email,updated.address,updated.preferred_countries,stage,clientStatus,newOwner,updated.notes,updated.next_followup_at,now,id).run();}
    catch{return fail(409,'Another lead uses that phone number.');}
@@ -445,27 +497,34 @@ export async function handleCrmRequest(method:string,rawPath:string,body:Dict,ct
      const nextStatus=clientStatus==='archived'?'closed':clientStatus==='lead'?'lead':'active_client';
      if(profile)await db.prepare('UPDATE crm_lead_profiles SET relationship_status=?,updated_at=?,last_reviewed_by=? WHERE lead_id=?').bind(nextStatus,now,a.id,id).run();
    }
-   await trail(db,id,a,'updated',{stage:lead.stage,client_status:lead.client_status,assigned_to_user_id:lead.assigned_to_user_id},
-     {stage,client_status:clientStatus,assigned_to_user_id:newOwner},str(body.change_reason,500));
+   await trail(db,id,a,'updated',{stage:lead.stage,client_status:lead.client_status,assigned_to_user_id:lead.assigned_to_user_id,next_followup_at:lead.next_followup_at},
+     {stage,client_status:clientStatus,assigned_to_user_id:newOwner,next_followup_at:updated.next_followup_at},str(body.change_reason,500));
    return success({success:true});
  }
  if(path==='/api/crm/followups'&&verb==='POST'){
    const leadId=str(body.lead_id,80),lead=await db.prepare('SELECT * FROM crm_leads WHERE id=?').bind(leadId).first<Dict>();
    if(!lead)return fail(404,'Lead not found.');
-   if(!(await canManageLead(db,a,lead)))return fail(403,'Only authorized follow-up managers can record contact events.');
-   if(lead.referral_status!=='approved')return fail(409,'Approve the referral before adding follow-ups.');
-   const channel=str(body.channel,20),notes=str(body.notes,3000),next=str(body.next_followup_at,10);
-   if(!['call','whatsapp','email','meeting','other'].includes(channel)||notes.length<2||next&&!dateOk(next))return fail(400,'Provide a contact method, notes and valid next date.');
+   if(!(await canManageLead(db,a,lead)))return fail(403,'Only authorized case managers can log follow-ups.');
+   if(lead.referral_status!=='approved')return fail(409,'Approve the referral before following up.');
+   if(!Number(lead.consent_confirmed_at))return fail(409,'Verify contact permission before recording outreach.');
+   const profile=await db.prepare('SELECT relationship_status FROM crm_lead_profiles WHERE lead_id=?').bind(leadId).first<{relationship_status:string}>();
+   if(!['lead','active_client'].includes(String(profile?.relationship_status)))return fail(409,'Paused or closed students are not in the routine follow-up cycle.');
+   const channel=str(body.channel,20),notes=str(body.notes,3000),outcome=str(body.contact_outcome,20)||'connected';
+   if(!['call','whatsapp','email','meeting','other'].includes(channel)||!['connected','no_answer','rescheduled'].includes(outcome)||notes.length<2)return fail(400,'Valid contact method, outcome and notes required.');
    const contactedAt=Number(body.contacted_at)||now;
    if(!Number.isFinite(contactedAt)||contactedAt>now+60000||contactedAt<946684800000)return fail(400,'Invalid contact time.');
+   const explicit=body.next_followup_at?str(body.next_followup_at,10):'';
+   if(explicit&&!dateOk(explicit))return fail(400,'Invalid next follow-up date.');
+   if(outcome==='rescheduled'&&!explicit)return fail(400,'Choose a new date when rescheduling.');
+   const next=explicit||daysAfterDhaka(contactedAt,outcome==='connected'?3:1);
    await db.batch([
-     db.prepare('INSERT INTO crm_lead_followups(id,lead_id,channel,notes,contacted_at,next_followup_at,created_by_type,created_by_id,created_at) VALUES(?,?,?,?,?,?,?,?,?)')
-       .bind(uuid(),leadId,channel,notes,contactedAt,next||null,a.kind,a.id,now),
-     db.prepare('UPDATE crm_leads SET last_contacted_at=?,next_followup_at=?,updated_at=? WHERE id=?')
-       .bind(contactedAt,next||null,now,leadId)
+     db.prepare('INSERT INTO crm_lead_followups(id,lead_id,channel,notes,contacted_at,next_followup_at,created_by_type,created_by_id,created_at,contact_outcome) VALUES(?,?,?,?,?,?,?,?,?,?)')
+       .bind(uuid(),leadId,channel,notes,contactedAt,next,a.kind,a.id,now,outcome),
+     db.prepare('UPDATE crm_leads SET last_contacted_at=CASE WHEN ?=\'connected\' THEN ? ELSE last_contacted_at END,next_followup_at=?,updated_at=? WHERE id=?')
+       .bind(outcome,contactedAt,next,now,leadId)
    ]);
-   await trail(db,leadId,a,'contact',undefined,{channel,contacted_at:contactedAt,next_followup_at:next||null},notes.slice(0,200));
-   return success({success:true});
+   await trail(db,leadId,a,'followup_'+outcome,undefined,{channel,contacted_at:contactedAt,next_followup_at:next},notes.slice(0,200));
+   return success({success:true,next_followup_at:next});
  }
  if(path==='/api/crm/tasks'&&verb==='POST'){
    const rights=await delegated(db,a);if(!rights.agents)return fail(403,'Only AGN managers can assign tasks.');

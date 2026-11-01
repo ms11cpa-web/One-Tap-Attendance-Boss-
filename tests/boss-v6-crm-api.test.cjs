@@ -30,7 +30,7 @@ const fakeRequire=(x)=>{
 vm.runInNewContext(js,{module:mod,exports:mod.exports,require:fakeRequire,console,crypto:globalThis.crypto,Date,URL,TextEncoder});
 const handle=mod.exports.handleCrmRequest;
 function database(){const sqlite=new DatabaseSync(':memory:');sqlite.exec('PRAGMA foreign_keys=ON;');
- for(let n=1;n<=8;n++){let f=fs.readdirSync(path.join(root,'migrations')).find(x=>x.startsWith('000'+n+'_'));sqlite.exec(fs.readFileSync(path.join(root,'migrations',f),'utf8'));}
+ for(let n=1;n<=9;n++){let f=fs.readdirSync(path.join(root,'migrations')).find(x=>x.startsWith('000'+n+'_'));sqlite.exec(fs.readFileSync(path.join(root,'migrations',f),'utf8'));}
  let now=Date.now();for(const u of Object.values(people))sqlite.prepare('INSERT INTO users(id,employee_id,name,role,team,joining_date,password_hash) VALUES(?,?,?,?,?,?,?)').run(u.id,u.employee_id,u.name,u.role,u.team,'2026-01-01','PW:pass');
  sqlite.prepare('INSERT INTO amb_campuses(id,name,created_at) VALUES(?,?,?)').run('campus1','Campus',now);
  sqlite.prepare('INSERT INTO amb_people(id,ambassador_code,name,campus_id,password_hash,must_change_password,joined_at,updated_at) VALUES(?,?,?,?,?,?,?,?)').run('amb1','AGN1','Ambassador','campus1','PW:pass',0,now,now);
@@ -135,5 +135,49 @@ test('v7 protects client identity, keeps multiple application outcomes, and pagi
  assert.ok(ArrayBuffer.isView(exportResult.binary));
  assert.equal(lastWorkbook.sheets.find(x=>x.name==='All Students').rows.length,62,'export includes all authorized rows and header');
  assert.ok(lastWorkbook.sheets.find(x=>x.name==='All Students').rows.some(row=>String(row[1]).startsWith("'=HYPERLINK")),'dangerous spreadsheet content must be literal text');
+ sqlite.close();
+});
+test('v7.1 import, contact permission, and automatic follow-up queue are enforced server-side', async()=>{
+ const {db,sqlite}=database();
+ const payload={filename:'historic-AGN.csv',rows:[{full_name:'Imported Student',phone:'01712340099',email:'student@example.com',preferred_countries:'South Korea',referrer_display:'Old Facebook campaign',notes:'Old sheet'}]};
+ assert.equal((await post(db,'/api/crm/import',{...payload,commit:false},office('employee'))).status,403,'ordinary employees cannot import');
+ const preview=await post(db,'/api/crm/import',{...payload,commit:false},office('admin'));
+ assert.equal(preview.status,200,JSON.stringify(preview.data));assert.equal(preview.data.accepted,1);
+ const saved=await post(db,'/api/crm/import',{...payload,commit:true},office('admin'));
+ assert.equal(saved.status,200,JSON.stringify(saved.data));assert.equal(saved.data.imported,1);
+ const dbrow=sqlite.prepare("SELECT * FROM crm_leads WHERE phone_normalized='8801712340099'").get();
+ assert.equal(dbrow.consent_confirmed_at,0,'imported unknown consent never assumed');
+ assert.equal(dbrow.referrer_display,'Old Facebook campaign');
+ assert.equal(dbrow.import_batch_id,saved.data.batch_id);
+ assert.equal(dbrow.next_followup_at,null,'do not call imported students without consent');
+ assert.equal((await post(db,'/api/crm/import',{...payload,commit:false},office('admin'))).data.issues.length,1,'same phone never duplicated');
+ assert.equal((await post(db,'/api/crm/import',{...payload,commit:true},office('admin'))).status,409,'duplicate batch aborts');
+ assert.equal((await put(db,'/api/crm/leads/review',{id:dbrow.id,referral_status:'approved'},office('admin'))).status,200);
+ assert.equal(sqlite.prepare('SELECT next_followup_at FROM crm_leads WHERE id=?').get(dbrow.id).next_followup_at,null,'approval without consent does not schedule outreach');
+ assert.equal((await post(db,'/api/crm/followups',{lead_id:dbrow.id,channel:'call',notes:'Contacted',contact_outcome:'connected'},office('admin'))).status,409);
+ assert.equal((await put(db,'/api/crm/leads/consent',{id:dbrow.id,confirmed:true,evidence:'Consent verified from signup form'},office('admin'))).status,200);
+ const due=sqlite.prepare('SELECT next_followup_at FROM crm_leads WHERE id=?').get(dbrow.id).next_followup_at;
+ assert.ok(/^\d{4}-\d\d-\d\d$/.test(due));
+ const before=await get(db,'/api/crm/leads/page',{...office('admin'),query:{filter:'followups',page:'1'}});
+ assert.equal(before.data.total,0,'future calls are not incorrectly in due queue');
+ sqlite.prepare("UPDATE crm_leads SET next_followup_at='2024-01-01' WHERE id=?").run(dbrow.id);
+ assert.equal((await get(db,'/api/crm/leads/page',{...office('admin'),query:{filter:'followups',page:'1'}})).data.total,1,'overdue contact automatically enters action queue');
+ const now=Date.now();
+ const result=await post(db,'/api/crm/followups',{lead_id:dbrow.id,channel:'whatsapp',notes:'Discussed university choices',contact_outcome:'connected'},office('admin'));
+ assert.equal(result.status,200,JSON.stringify(result.data));
+ const inDays=(days)=>{const d=new Date(new Date().toISOString().slice(0,10)+'T12:00:00Z');d.setUTCDate(d.getUTCDate()+days);return d.toISOString().slice(0,10);};
+ assert.equal(result.data.next_followup_at,inDays(3),'successful contact is scheduled three calendar days later');
+ assert.equal((await get(db,'/api/crm/leads/page',{...office('admin'),query:{filter:'followups',page:'1'}})).data.total,0,'documented contact automatically removes student from due queue');
+ assert.equal(sqlite.prepare('SELECT last_contacted_at FROM crm_leads WHERE id=?').get(dbrow.id).last_contacted_at>=now,true);
+ assert.equal(sqlite.prepare('SELECT contact_outcome FROM crm_lead_followups LIMIT 1').get().contact_outcome,'connected');
+ const connectedTimestamp=sqlite.prepare('SELECT last_contacted_at FROM crm_leads WHERE id=?').get(dbrow.id).last_contacted_at;
+ const attempt=await post(db,'/api/crm/followups',{lead_id:dbrow.id,channel:'call',notes:'No response',contact_outcome:'no_answer'},office('admin'));
+ assert.equal(attempt.status,200,JSON.stringify(attempt.data));
+ assert.equal(attempt.data.next_followup_at,inDays(1),'no answer is retried the next calendar day');
+ assert.equal(sqlite.prepare('SELECT last_contacted_at FROM crm_leads WHERE id=?').get(dbrow.id).last_contacted_at,connectedTimestamp,'no answer is not a successful contact');
+ assert.equal((await get(db,'/api/crm/leads/page',{...office('admin'),query:{filter:'upcoming',page:'1'}})).data.total,1,'upcoming queue includes next call');
+ assert.equal((await put(db,'/api/crm/leads/update',{id:dbrow.id,next_followup_at:'2030-01-01'},office('admin'))).status,400,'staff cannot silently postpone due dates without a reason');
+ assert.equal((await put(db,'/api/crm/leads/update',{id:dbrow.id,next_followup_at:'2030-01-01',change_reason:'Student requested extension until January'},office('admin'))).status,200,'explicit rescheduling reason is audited');
+ assert.equal(sqlite.prepare("SELECT COUNT(*) AS n FROM audit_logs WHERE action='CRM_IMPORT'").get().n,1);
  sqlite.close();
 });

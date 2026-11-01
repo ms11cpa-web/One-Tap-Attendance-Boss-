@@ -1,5 +1,6 @@
 import React from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { AGN_CONTACT } from '../../config/agn-contact';
 import {
   LayoutDashboard,
   Clock,
@@ -14,6 +15,7 @@ import {
   GraduationCap,
   ContactRound,
   BriefcaseBusiness,
+  Globe, Facebook, MessageCircle, Mail,
 } from 'lucide-react';
 
 export type NavTab =
@@ -188,6 +190,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className="flex items-center justify-between">
           <span className="text-slate-400 font-medium">GPS Radius:</span>
           <span className="text-teal-400 font-mono">300 metres</span>
+        </div>
+        <div className="mt-2 border-t border-slate-700 pt-2">
+          <a className="flex items-center gap-1 text-teal-300 hover:text-white underline underline-offset-2" href={AGN_CONTACT.whatsappUrl} target="_blank" rel="noopener noreferrer" aria-label={`AGN WhatsApp ${AGN_CONTACT.whatsappDisplay}`}><MessageCircle size={13}/> {AGN_CONTACT.whatsappDisplay}</a>
+          <div className="mt-2 flex gap-4">
+            <a href={AGN_CONTACT.website} target="_blank" rel="noopener noreferrer" title="Official AGN website" aria-label="Official AGN website" className="text-slate-300 hover:text-white"><Globe size={15}/></a>
+            <a href={AGN_CONTACT.facebook} target="_blank" rel="noopener noreferrer" title="AGN Facebook" aria-label="AGN Facebook" className="text-slate-300 hover:text-white"><Facebook size={15}/></a>
+            <a href={`mailto:${AGN_CONTACT.email}`} title={AGN_CONTACT.email} aria-label={`Email ${AGN_CONTACT.email}`} className="text-slate-300 hover:text-white"><Mail size={15}/></a>
+          </div>
         </div>
       </div>
     </aside>

@@ -216,6 +216,14 @@ export async function getOrCreateNodeD1Database(): Promise<NodeD1Database> {
     if (fs.existsSync(casesMigration)) db.exec(fs.readFileSync(casesMigration,'utf8'));
   }
 
+  // CRM v7.1: preserve existing data; apply the optional additive import/outcome upgrade.
+  const columns = db.exec("PRAGMA table_info(crm_lead_followups)");
+  const hasOutcome = columns[0]?.values.some((r: unknown[]) => r[1] === 'contact_outcome');
+  if (!hasOutcome) {
+    const file = path.resolve('migrations/0009_crm_smart_followups_import.sql');
+    if (fs.existsSync(file)) db.exec(fs.readFileSync(file, 'utf8'));
+  }
+
   // Seed default data if users table is empty
   await seedInitialData(nodeDb);
 
