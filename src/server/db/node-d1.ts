@@ -209,6 +209,13 @@ export async function getOrCreateNodeD1Database(): Promise<NodeD1Database> {
     if (fs.existsSync(crmMigration)) db.exec(fs.readFileSync(crmMigration,'utf8'));
   }
 
+  // CRM v7: additive student profiles and application cases.
+  const hasCrmCases = db.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='crm_applications'");
+  if (!hasCrmCases[0]?.values.length) {
+    const casesMigration = path.resolve('migrations/0008_crm_cases_workflow.sql');
+    if (fs.existsSync(casesMigration)) db.exec(fs.readFileSync(casesMigration,'utf8'));
+  }
+
   // Seed default data if users table is empty
   await seedInitialData(nodeDb);
 

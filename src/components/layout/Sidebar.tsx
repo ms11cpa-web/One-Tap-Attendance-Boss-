@@ -13,6 +13,7 @@ import {
   Laptop,
   GraduationCap,
   ContactRound,
+  BriefcaseBusiness,
 } from 'lucide-react';
 
 export type NavTab =
@@ -28,7 +29,8 @@ export type NavTab =
   | 'settings'
   | 'audit'
   | 'ambassadors'
-  | 'crm';
+  | 'crm'
+  | 'commission_team';
 
 interface SidebarProps {
   currentTab: NavTab;
@@ -111,9 +113,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
     {
       id: 'crm' as NavTab,
-      label: 'Leads & Clients CRM',
+      label: 'Leads & Clients',
       icon: ContactRound,
       show: true,
+    },
+    {
+      id: 'commission_team' as NavTab,
+      label: 'Commission-Based Team',
+      icon: BriefcaseBusiness,
+      show: isAdminOrManager,
     },
     {
       id: 'audit' as NavTab,

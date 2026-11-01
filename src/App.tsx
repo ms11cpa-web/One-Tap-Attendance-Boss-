@@ -141,7 +141,8 @@ const MainApp: React.FC = () => {
           {currentTab === 'audit' && <AuditLogsView />}
 
           {currentTab === 'ambassadors' && user.role !== 'employee' && <AmbassadorAdminView />}
-          {currentTab === 'crm' && <CrmWorkspace portal="office" />}
+          {currentTab === 'crm' && <CrmWorkspace key="leads" portal="office" section="leads" />}
+          {currentTab === 'commission_team' && user.role !== 'employee' && <CrmWorkspace key="agents" portal="office" section="agents" />}
         </main>
       </div>
 

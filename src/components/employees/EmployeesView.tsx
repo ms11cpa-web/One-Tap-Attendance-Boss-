@@ -196,13 +196,13 @@ export const EmployeesView: React.FC = () => {
   const getRoleBadge = (r: UserRole) => {
     switch (r) {
       case 'super_admin':
-        return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800">Super Admin</span>;
+        return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 dark:bg-amber-900 dark:text-amber-100">Super Admin</span>;
       case 'hr_admin':
-        return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800">HR Admin</span>;
+        return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-900 dark:bg-purple-900 dark:text-purple-100">HR Admin</span>;
       case 'team_manager':
-        return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800">Team Manager</span>;
+        return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-900 dark:bg-blue-900 dark:text-blue-100">Team Manager</span>;
       default:
-        return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700">Employee</span>;
+        return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-800 dark:bg-slate-700 dark:text-slate-100">Employee</span>;
     }
   };
 

@@ -1,7 +1,14 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
 const {DatabaseSync}=require('node:sqlite');
 const root=path.resolve(__dirname,'..');
-const source=fs.readFileSync(path.join(root,'src/server/crm/router.ts'),'utf8');
+const productionSource=fs.readFileSync(path.join(root,'src/server/crm/router.ts'),'utf8');
+// The production Worker loads xlsx lazily with import('xlsx'). This test runs
+// that route inside a CommonJS VM with a fake xlsx workbook; Node's VM has no
+// dynamic-import callback. Replace only this one import in the TEST COPY of
+// the router, leaving the production code and its lazy loading unchanged.
+const lazyXlsxImport=/\bawait\s+import\s*\(\s*(['"])xlsx\1\s*\)/g;
+assert.equal([...productionSource.matchAll(lazyXlsxImport)].length,1,'Expected a single lazy xlsx import in the CRM router');
+const source=productionSource.replace(lazyXlsxImport,"await Promise.resolve(require('xlsx'))");
 // Use the project's esbuild on Windows (TypeScript 7 removed several old compiler enums).
 // The fallback allows this source test to run in constrained build environments.
 let js;
@@ -10,7 +17,11 @@ catch { const ts=require('typescript');js=ts.transpileModule(source,{fileName:'r
 const people={admin:{id:'u1',employee_id:'ADMIN',name:'Admin',role:'super_admin',status:'active',team:'Management'},manager:{id:'u2',employee_id:'TL1',name:'Team Lead',role:'team_manager',status:'active',team:'Marketing'},employee:{id:'u3',employee_id:'EMP3',name:'Employee',role:'employee',status:'active',team:'Marketing'}};
 const mod={exports:{}};
 const secure=(s)=>'H:'+s;
+let lastWorkbook=null;
+const fakeXlsx={utils:{book_new(){lastWorkbook={sheets:[]};return lastWorkbook;},aoa_to_sheet(rows){return {rows};},book_append_sheet(wb,ws,name){wb.sheets.push({name,rows:ws.rows});}},write(){return new Uint8Array([80,75,3,4]);}};
 const fakeRequire=(x)=>{
+ if(x==='xlsx')return fakeXlsx;
+ if(x.endsWith('/time.ts'))return {getDhakaDateString:()=>new Date().toISOString().slice(0,10)};
  if(x.endsWith('/api-handler.ts'))return {getUserFromSession:async(_db,t)=>people[t]||null};
  if(x.endsWith('/crypto.ts'))return {hashPassword:async(pass)=>'PW:'+pass,verifyPassword:async(pass,hash)=>hash==='PW:'+pass,generateSessionToken:()=> 'test-session-token'};
  if(x.endsWith('/recovery.ts'))return {hashRecoveryCode:async(s)=>secure(s)};
@@ -19,7 +30,7 @@ const fakeRequire=(x)=>{
 vm.runInNewContext(js,{module:mod,exports:mod.exports,require:fakeRequire,console,crypto:globalThis.crypto,Date,URL,TextEncoder});
 const handle=mod.exports.handleCrmRequest;
 function database(){const sqlite=new DatabaseSync(':memory:');sqlite.exec('PRAGMA foreign_keys=ON;');
- for(let n=1;n<=7;n++){let f=fs.readdirSync(path.join(root,'migrations')).find(x=>x.startsWith('000'+n+'_'));sqlite.exec(fs.readFileSync(path.join(root,'migrations',f),'utf8'));}
+ for(let n=1;n<=8;n++){let f=fs.readdirSync(path.join(root,'migrations')).find(x=>x.startsWith('000'+n+'_'));sqlite.exec(fs.readFileSync(path.join(root,'migrations',f),'utf8'));}
  let now=Date.now();for(const u of Object.values(people))sqlite.prepare('INSERT INTO users(id,employee_id,name,role,team,joining_date,password_hash) VALUES(?,?,?,?,?,?,?)').run(u.id,u.employee_id,u.name,u.role,u.team,'2026-01-01','PW:pass');
  sqlite.prepare('INSERT INTO amb_campuses(id,name,created_at) VALUES(?,?,?)').run('campus1','Campus',now);
  sqlite.prepare('INSERT INTO amb_people(id,ambassador_code,name,campus_id,password_hash,must_change_password,joined_at,updated_at) VALUES(?,?,?,?,?,?,?,?)').run('amb1','AGN1','Ambassador','campus1','PW:pass',0,now,now);
@@ -48,11 +59,13 @@ test('CRM rejects anonymous access, agent onboarding, referral owner approvals a
  assert.equal((await post(db,'/api/crm/leads',{full_name:'Repeat phone',phone:'01711111111',consent_confirmed:true},ctx)).status,409,'Bangladesh local phone and +880 country code must refer to one lead');
  assert.equal((await get(db,'/api/crm/state',office('employee'))).data.leads.length,0);
  const state=await get(db,'/api/crm/state',office('manager'));
- assert.equal(state.data.leads.some(x=>x.id===id),true,'team manager can see unassigned pending referral');
- assert.equal((await put(db,'/api/crm/leads/review',{id,referral_status:'approved'},office('manager'))).status,200);
- assert.equal((await put(db,'/api/crm/leads/review',{id,referral_status:'approved'},office('manager'))).status,409);
- assert.equal((await put(db,'/api/crm/leads/update',{id,stage:'Offer Letter Received',client_status:'client'},office('manager'))).status,200);
- assert.equal((await post(db,'/api/crm/followups',{lead_id:id,channel:'call',notes:'Discussed client documents',next_followup_at:'2026-11-18'},office('manager'))).status,200);
+ assert.equal(state.data.leads.some(x=>x.id===id),false,'team manager cannot view unassigned referrals from outside own team');
+ assert.equal((await put(db,'/api/crm/leads/review',{id,referral_status:'approved'},office('manager'))).status,403);
+ assert.equal((await put(db,'/api/crm/leads/review',{id,referral_status:'approved'},office('admin'))).status,200);
+ assert.equal((await put(db,'/api/crm/leads/review',{id,referral_status:'approved'},office('admin'))).status,409);
+ assert.equal((await put(db,'/api/crm/leads/update',{id,stage:'Offer Letter Received'},office('admin'))).status,200);
+ assert.equal((await put(db,'/api/crm/profiles',{lead_id:id,relationship_status:'active_client'},office('admin'))).status,200);
+ assert.equal((await post(db,'/api/crm/followups',{lead_id:id,channel:'call',notes:'Discussed client documents',next_followup_at:'2026-11-18'},office('admin'))).status,200);
  const commState=await get(db,'/api/crm/state',ctx);
  assert.equal(commState.data.leads[0].stage,'Offer Letter Received');assert.equal(commState.data.followups.length,0,'internal followups never returned to external referrer');
  const agentId=sqlite.prepare('SELECT id FROM crm_commission_agents').get().id;
@@ -75,5 +88,52 @@ test('ambassador and office employee referral attribution is self-only',async()=
  const source=sqlite.prepare('SELECT referrer_type,referrer_id FROM crm_leads WHERE id=?').get(staff.data.id);
  assert.equal(source.referrer_type,'office');assert.equal(source.referrer_id,'u3');
  assert.equal((await put(db,'/api/crm/leads/review',{id:staff.data.id,referral_status:'approved'},office('employee'))).status,403);
+ sqlite.close();
+});
+test('v7 protects client identity, keeps multiple application outcomes, and paginates office CRM',async()=>{
+ const {db,sqlite}=database(), t=Date.now();
+ // Employee owns the referral; team lead can review because source employee belongs to same team.
+ const lead=await post(db,'/api/crm/leads',{full_name:'Student One',phone:'01791919191',consent_confirmed:true},office('employee'));
+ assert.equal(lead.status,200,JSON.stringify(lead.data));const id=lead.data.id;
+ assert.equal((await put(db,'/api/crm/leads/review',{id,referral_status:'approved'},office('manager'))).status,200);
+ const p=await get(db,'/api/crm/leads/page',{...office('manager'),query:{filter:'leads',page:'1'}});
+ assert.equal(p.status,200);assert.equal(p.data.total,1);
+ assert.equal((await put(db,'/api/crm/leads/update',{id,client_status:'archived'},office('manager'))).status,400,'cannot silently close student without reason');
+ assert.equal((await put(db,'/api/crm/profiles',{lead_id:id,relationship_status:'lost',closed_reason:''},office('manager'))).status,400);
+ assert.equal((await put(db,'/api/crm/profiles',{lead_id:id,relationship_status:'active_client',education_level:'HSC',target_intake:'2027'},office('manager'))).status,200);
+ const c=await post(db,'/api/crm/applications',{lead_id:id,destination_country:'Canada',institution:'University A',programme:'BSc'},office('manager'));
+ assert.equal(c.status,200,JSON.stringify(c.data));
+ assert.equal((await put(db,'/api/crm/applications',{id:c.data.id,application_status:'rejected',visa_status:'refused',outcome_note:''},office('manager'))).status,400);
+ assert.equal((await put(db,'/api/crm/applications',{id:c.data.id,application_status:'rejected',visa_status:'refused',outcome_note:'Official refusal notice reviewed'},office('manager'))).status,200);
+ const another=await post(db,'/api/crm/applications',{lead_id:id,destination_country:'Australia',programme:'Business'},office('manager'));
+ assert.equal(another.status,200);
+ const items=await get(db,'/api/crm/applications',{...office('manager'),query:{lead_id:id}});
+ assert.equal(items.data.applications.length,2);
+ assert.equal((await put(db,'/api/crm/profiles',{lead_id:id,relationship_status:'lost',closed_reason:'Student will not continue this intake'},office('manager'))).status,200);
+ assert.equal((await get(db,'/api/crm/leads/page',{...office('manager'),query:{filter:'closed',page:'1'}})).data.total,1);
+ assert.equal(sqlite.prepare('SELECT count(*) AS n FROM crm_applications WHERE lead_id=?').get(id).n,2,'closed student retains all application attempts');
+ assert.equal((await put(db,'/api/crm/profiles',{lead_id:id,relationship_status:'active_client'},office('manager'))).status,200,'student can reopen without losing original attribution');
+ assert.equal(sqlite.prepare('SELECT referrer_type FROM crm_leads WHERE id=?').get(id).referrer_type,'office');
+ assert.equal((await get(db,'/api/crm/applications',{...office('employee'),query:{lead_id:id}})).status,403,'referrer not allowed to see private application details');
+ assert.equal((await get(db,'/api/crm/timeline',{...office('employee'),query:{lead_id:id}})).status,403,'referrer cannot read confidential counselling trail');
+ const timeline=await get(db,'/api/crm/timeline',{...office('manager'),query:{lead_id:id}});
+ assert.equal(timeline.status,200);assert.ok(timeline.data.history_total>=3);
+ const metrics=await get(db,'/api/crm/metrics',office('manager'));
+ assert.equal(metrics.status,200);assert.equal(metrics.data.clients,1);
+ assert.equal(sqlite.prepare('SELECT count(*) AS n FROM crm_application_history').get().n,3,'all case changes audited');
+ // Additional students exceed a 50-row page: no silent truncation.
+ const insert=sqlite.prepare("INSERT INTO crm_leads(id,full_name,phone,phone_normalized,referrer_type,referrer_id,referrer_display,created_by_type,created_by_id,consent_confirmed_at,assigned_to_user_id,referral_status,stage,client_status,notes,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+ const prof=sqlite.prepare("INSERT INTO crm_lead_profiles(lead_id,relationship_status,updated_at) VALUES(?,'lead',?)");
+ for(let i=0;i<60;i++){const x='lead-'+i;insert.run(x,i===0?'=HYPERLINK(\"https://invalid.example\",\"Click\")':'Test Student '+i,'011'+String(i).padStart(9,'0'),'011'+String(i).padStart(9,'0'),'office','u2','Manager','office','u2',t,'u2','approved','New','lead','',t+i,t+i);prof.run(x,t+i);}
+ const first=await get(db,'/api/crm/leads/page',{...office('manager'),query:{filter:'all',page:'1'}});
+ const second=await get(db,'/api/crm/leads/page',{...office('manager'),query:{filter:'all',page:'2'}});
+ assert.equal(first.data.rows.length,50);assert.equal(second.data.rows.length,11);assert.equal(first.data.total,61);
+ assert.equal((await get(db,'/api/crm/leads/page',{...office('employee'),query:{filter:'all'}})).data.total,1,'ordinary employee cannot read other team member case lists');
+ assert.equal((await get(db,'/api/crm/export-xlsx',office('employee'))).status,403,'ordinary staff cannot export CRM contact lists');
+ const exportResult=await get(db,'/api/crm/export-xlsx',office('manager'));
+ assert.equal(exportResult.status,200,JSON.stringify(exportResult.data));
+ assert.ok(ArrayBuffer.isView(exportResult.binary));
+ assert.equal(lastWorkbook.sheets.find(x=>x.name==='All Students').rows.length,62,'export includes all authorized rows and header');
+ assert.ok(lastWorkbook.sheets.find(x=>x.name==='All Students').rows.some(row=>String(row[1]).startsWith("'=HYPERLINK")),'dangerous spreadsheet content must be literal text');
  sqlite.close();
 });

@@ -5,9 +5,10 @@ import type { D1DatabaseLike } from '../db/types.ts';
 import { getUserFromSession } from '../routes/api-handler.ts';
 import { hashPassword, verifyPassword, generateSessionToken } from '../auth/crypto.ts';
 import { hashRecoveryCode } from '../auth/recovery.ts';
+import { getDhakaDateString } from '../utils/time.ts';
 
 type Dict = Record<string, unknown>;
-type Reply = {status:number;data:unknown;headers?:Record<string,string>};
+type Reply = {status:number;data:unknown;headers?:Record<string,string>;binary?:Uint8Array};
 type Context = {officeToken?:string;ambassadorToken?:string;commissionToken?:string;query?:Record<string,string>};
 type Actor = {kind:'office'|'ambassador'|'commission';id:string;name:string;role:string;team?:string;selfCode?:string};
 const fail = (status:number,error:string):Reply=>({status,data:{error}});
@@ -49,14 +50,14 @@ async function delegated(db:D1DatabaseLike,a:Actor){
   if(a.kind!=='office')return {leads:false,agents:false};
   if(admin(a))return {leads:true,agents:true};
   const d=await db.prepare('SELECT can_manage_leads,can_manage_agents FROM crm_delegations WHERE user_id=?').bind(a.id).first<{can_manage_leads:number;can_manage_agents:number}>();
-  return {leads:a.role==='team_manager'||Number(d?.can_manage_leads)===1,agents:a.role==='team_manager'||Number(d?.can_manage_agents)===1};
+  return {leads:a.role==='team_manager'||Number(d?.can_manage_leads)===1,agents:Number(d?.can_manage_agents)===1};
 }
 async function canReadLead(db:D1DatabaseLike,a:Actor,l:Dict):Promise<boolean>{
   if(admin(a))return true;
   if(l.referrer_type===a.kind&&l.referrer_id===a.id)return true;
   if(a.kind!=='office')return false;
   if(l.assigned_to_user_id===a.id)return true;
-  if(a.role==='team_manager' && !l.assigned_to_user_id && l.referral_status==='pending')return true;
+  if(a.role==='team_manager' && !l.assigned_to_user_id && l.referral_status==='pending' && l.referrer_type==='office')return !!await db.prepare('SELECT id FROM users WHERE id=? AND team=?').bind(l.referrer_id,a.team).first();
   if(a.role==='team_manager'){
     const u=await db.prepare('SELECT id FROM users WHERE id=? AND team=?').bind(l.assigned_to_user_id,a.team).first();
     if(u)return true;
@@ -69,9 +70,31 @@ async function canManageLead(db:D1DatabaseLike,a:Actor,l:Dict):Promise<boolean>{
   const d=await delegated(db,a);
   if(!d.leads)return false;
   if(l.assigned_to_user_id===a.id)return true;
-  if(a.role==='team_manager' && !l.assigned_to_user_id && l.referral_status==='pending')return true;
+  if(a.role==='team_manager' && !l.assigned_to_user_id && l.referral_status==='pending' && l.referrer_type==='office')return !!await db.prepare('SELECT id FROM users WHERE id=? AND team=?').bind(l.referrer_id,a.team).first();
   if(a.role==='team_manager')return !!await db.prepare('SELECT id FROM users WHERE id=? AND team=?').bind(l.assigned_to_user_id,a.team).first();
   return false;
+}
+// Same access scope used by pagination AND exports. Never trust a UI filter for permissions.
+function scopeWhere(a:Actor,managerOnly=false):{where:string;args:unknown[]}{
+ if(admin(a))return {where:'1=1',args:[]};
+ if(a.kind!=='office')return {where:'1=0',args:[]};
+ if(a.role==='team_manager')return managerOnly?{where:"(l.assigned_to_user_id=? OR (o.team=? AND o.status='active') OR (l.assigned_to_user_id IS NULL AND l.referral_status='pending' AND l.referrer_type='office' AND EXISTS (SELECT 1 FROM users r WHERE r.id=l.referrer_id AND r.team=?)))",args:[a.id,a.team||'',a.team||'']}:{where:"(l.assigned_to_user_id=? OR (l.referrer_type='office' AND l.referrer_id=?) OR (o.team=? AND o.status='active') OR (l.assigned_to_user_id IS NULL AND l.referral_status='pending' AND l.referrer_type='office' AND EXISTS (SELECT 1 FROM users r WHERE r.id=l.referrer_id AND r.team=?)))",args:[a.id,a.id,a.team||'',a.team||'']};
+ return managerOnly?{where:"l.assigned_to_user_id=?",args:[a.id]}:{where:"(l.assigned_to_user_id=? OR (l.referrer_type='office' AND l.referrer_id=?))",args:[a.id,a.id]};
+}
+const safeCell=(v:unknown):string=>{
+ const s=String(v??'');
+ // Explicit literal string cells. Guard against spreadsheet formula markers and control chars.
+ return /^[\s\uFEFF]*[=+@\-\uFF1D\uFF0B\uFF0D\uFF20]/u.test(s)?"'"+s:s;
+};
+async function readAllExport(db:D1DatabaseLike,sql:string,args:unknown[]):Promise<Dict[]|null>{
+ const results:Dict[]=[];
+ const chunk=300;
+ for(let offset=0;offset<50000;offset+=chunk){
+   const batch=await rowList(db,sql+' LIMIT ? OFFSET ?',...args,chunk,offset);
+   results.push(...batch);
+   if(batch.length<chunk)return results;
+ }
+ return null; // fail explicitly rather than silently deliver a partial export
 }
 async function trail(db:D1DatabaseLike,leadId:string,a:Actor,action:string,from:unknown,to:unknown,note=''){
   await db.prepare(`INSERT INTO crm_lead_history(id,lead_id,action,old_value,new_value,note,actor_type,actor_id,created_at)
@@ -118,6 +141,148 @@ export async function handleCrmRequest(method:string,rawPath:string,body:Dict,ct
       .bind(await hashPassword(pass),now,a.id).run();
    return success({success:true});
  }
+ if(path==='/api/crm/metrics'&&verb==='GET'){
+   if(a.kind!=='office')return fail(403,'Office account required.');
+   const {where,args}=scopeWhere(a);
+   const today=getDhakaDateString();
+   const m=await db.prepare(`SELECT COUNT(*) AS total,
+    SUM(CASE WHEN l.referral_status='pending' THEN 1 ELSE 0 END) AS pending,
+    SUM(CASE WHEN p.relationship_status='lead' THEN 1 ELSE 0 END) AS leads,
+    SUM(CASE WHEN p.relationship_status IN ('active_client','on_hold','completed') THEN 1 ELSE 0 END) AS clients,
+    SUM(CASE WHEN p.relationship_status IN ('lost','closed') THEN 1 ELSE 0 END) AS closed,
+    SUM(CASE WHEN l.next_followup_at IS NOT NULL AND l.next_followup_at < ? AND p.relationship_status NOT IN ('lost','closed') THEN 1 ELSE 0 END) AS overdue
+   FROM crm_leads l JOIN crm_lead_profiles p ON p.lead_id=l.id LEFT JOIN users o ON o.id=l.assigned_to_user_id WHERE (${where})`).bind(today,...args).first<Dict>();
+   return success({total:Number(m?.total||0),pending:Number(m?.pending||0),leads:Number(m?.leads||0),clients:Number(m?.clients||0),closed:Number(m?.closed||0),overdue:Number(m?.overdue||0)});
+ }
+ // Office CRM: page through ALL accessible records, without the preview endpoint's 500-row limit.
+ if(path==='/api/crm/leads/page'&&verb==='GET'){
+   if(a.kind!=='office')return fail(403,'Office sign-in required for the lead register.');
+   const filter=str(ctx.query?.filter,12)||'leads';
+   if(!['leads','clients','closed','followups','all'].includes(filter))return fail(400,'Invalid list filter.');
+   const page=Math.max(1,Math.min(100000,Number.parseInt(str(ctx.query?.page,8),10)||1));
+   const pageSize=50;
+   const q=str(ctx.query?.search,100);
+   const {where,args}=scopeWhere(a);
+   const clause=filter==='clients'?"p.relationship_status IN ('active_client','on_hold','completed')":filter==='closed'?"p.relationship_status IN ('lost','closed')":filter==='leads'?"p.relationship_status='lead'":filter==='followups'?"l.next_followup_at IS NOT NULL AND p.relationship_status NOT IN ('lost','closed')":'1=1';
+   const textSql=q?' AND (l.full_name LIKE ? OR l.phone LIKE ? OR l.referrer_display LIKE ? OR l.id LIKE ?)':'';
+   const vals=[...args,...(q?[`%${q}%`,`%${q}%`,`%${q}%`,`%${q}%`]:[])];
+   const joined=` FROM crm_leads l JOIN crm_lead_profiles p ON p.lead_id=l.id LEFT JOIN users o ON o.id=l.assigned_to_user_id WHERE (${where}) AND (${clause})${textSql}`;
+   const count=await db.prepare(`SELECT COUNT(*) AS n${joined}`).bind(...vals).first<{n:number}>();
+   const rows=await rowList(db,`SELECT l.*,p.relationship_status,p.closed_reason,p.closed_at,p.converted_at,p.education_level,p.study_subject,p.target_intake,p.budget_band,p.preferred_contact${joined} ORDER BY ${filter==='followups'?'l.next_followup_at ASC,':''} l.updated_at DESC,l.id DESC LIMIT ? OFFSET ?`,...vals,pageSize,(page-1)*pageSize);
+   const rights=await delegated(db,a);
+   if(!admin(a)&&!rights.leads)rows.forEach(l=>{delete l.notes;delete l.address;});
+   return success({rows,total:Number(count?.n||0),page,page_size:pageSize});
+ }
+ // Export must read server-scoped records, never the browser's limited preview.
+ if(path==='/api/crm/export-xlsx'&&verb==='GET'){
+   const rights=await delegated(db,a);
+   if(a.kind!=='office'||!rights.leads)return fail(403,'An authorized CRM manager account is required for exports.');
+   const {where,args}=scopeWhere(a,true);
+   const leads=await readAllExport(db,`SELECT l.id,l.full_name,l.phone,l.email,l.address,l.preferred_countries,l.referrer_type,l.referrer_display,l.referral_status,l.stage,l.client_status,l.assigned_to_user_id,l.last_contacted_at,l.next_followup_at,l.created_at,p.relationship_status,p.closed_reason,p.closed_at,p.education_level,p.study_subject,p.target_intake,p.budget_band FROM crm_leads l JOIN crm_lead_profiles p ON p.lead_id=l.id LEFT JOIN users o ON o.id=l.assigned_to_user_id WHERE (${where}) ORDER BY l.created_at DESC,l.id DESC`,args);
+   if(leads===null)return fail(413,'The report is too large for one export. Ask the administrator to export in smaller batches.');
+   const applications=await readAllExport(db,`SELECT x.id,x.lead_id,x.destination_country,x.institution,x.programme,x.intake,x.application_status,x.visa_status,x.outcome_note,x.created_at,x.updated_at FROM crm_applications x JOIN crm_leads l ON l.id=x.lead_id LEFT JOIN users o ON o.id=l.assigned_to_user_id WHERE (${where}) ORDER BY x.created_at DESC`,args);
+   const followups=await readAllExport(db,`SELECT f.lead_id,f.channel,f.notes,f.contacted_at,f.next_followup_at,f.created_by_id FROM crm_lead_followups f JOIN crm_leads l ON l.id=f.lead_id LEFT JOIN users o ON o.id=l.assigned_to_user_id WHERE (${where}) ORDER BY f.contacted_at DESC`,args);
+   if(applications===null||followups===null)return fail(413,'The report is too large for one export.');
+   const XLSX=await import('xlsx');
+   const workbook=XLSX.utils.book_new();
+   const add=(name:string,items:Dict[],cols:string[])=>{
+     // Force every user-provided field into literal strings, never spreadsheet formulas.
+     const rows=[cols,...items.map(item=>cols.map(col=>safeCell(item[col])))];
+     XLSX.utils.book_append_sheet(workbook,XLSX.utils.aoa_to_sheet(rows),name);
+   };
+   const cols=['id','full_name','phone','email','address','preferred_countries','referrer_type','referrer_display','referral_status','stage','client_status','relationship_status','closed_reason','assigned_to_user_id','last_contacted_at','next_followup_at','created_at','education_level','study_subject','target_intake','budget_band'];
+   add('Leads',leads.filter(l=>l.relationship_status==='lead'),cols);
+   add('Clients',leads.filter(l=>['active_client','on_hold','completed'].includes(String(l.relationship_status))),cols);
+   add('Closed and Lost',leads.filter(l=>['closed','lost'].includes(String(l.relationship_status))),cols);
+   add('All Students',leads,cols);
+   add('Applications',applications,['id','lead_id','destination_country','institution','programme','intake','application_status','visa_status','outcome_note','created_at','updated_at']);
+   add('Follow Ups',followups,['lead_id','channel','notes','contacted_at','next_followup_at','created_by_id']);
+   const out=XLSX.write(workbook,{bookType:'xlsx',type:'array'});
+   await db.prepare('INSERT INTO audit_logs(id,user_id,user_name,action,resource_type,resource_id,details,timestamp) VALUES(?,?,?,?,?,?,?,?)')
+     .bind(uuid(),a.id,a.name,'CRM_EXPORT','crm','all',JSON.stringify({leads:leads.length,applications:applications.length,followups:followups.length}),now).run();
+   return {status:200,data:null,binary:new Uint8Array(out),headers:{'Content-Type':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','Content-Disposition':'attachment; filename="AGN_Leads_Clients_Report.xlsx"','Cache-Control':'no-store'}};
+ }
+ if(path==='/api/crm/timeline'&&verb==='GET'){
+   const id=str(ctx.query?.lead_id,80),lead=await db.prepare('SELECT * FROM crm_leads WHERE id=?').bind(id).first<Dict>();
+   if(!lead)return fail(404,'Lead not found.');
+   if(!(await canManageLead(db,a,lead)))return fail(403,'Internal follow-up history is restricted to the authorized case manager.');
+   const page=Math.max(1,Math.min(100000,Number.parseInt(str(ctx.query?.page,8),10)||1));
+   const count1=await db.prepare('SELECT COUNT(*) AS n FROM crm_lead_followups WHERE lead_id=?').bind(id).first<{n:number}>();
+   const count2=await db.prepare('SELECT COUNT(*) AS n FROM crm_lead_history WHERE lead_id=?').bind(id).first<{n:number}>();
+   const followups=await rowList(db,'SELECT * FROM crm_lead_followups WHERE lead_id=? ORDER BY contacted_at DESC,id DESC LIMIT 50 OFFSET ?',id,(page-1)*50);
+   const history=await rowList(db,'SELECT * FROM crm_lead_history WHERE lead_id=? ORDER BY created_at DESC,id DESC LIMIT 50 OFFSET ?',id,(page-1)*50);
+   return success({followups,history,followups_total:Number(count1?.n||0),history_total:Number(count2?.n||0),page});
+ }
+ if(path==='/api/crm/applications'&&verb==='GET'){
+   const id=str(ctx.query?.lead_id,80);
+   const lead=await db.prepare('SELECT * FROM crm_leads WHERE id=?').bind(id).first<Dict>();
+   if(!lead)return fail(404,'Student not found.');
+   if(!(await canManageLead(db,a,lead)))return fail(403,'Only the authorized case manager can view application details.');
+   const records=await rowList(db,'SELECT * FROM crm_applications WHERE lead_id=? ORDER BY created_at DESC',id);
+   return success({applications:records});
+ }
+ if(path==='/api/crm/profiles'&&verb==='PUT'){
+   const id=str(body.lead_id,80),l=await db.prepare('SELECT * FROM crm_leads WHERE id=?').bind(id).first<Dict>();
+   if(!l)return fail(404,'Lead not found.');
+   if(!(await canManageLead(db,a,l)))return fail(403,'Manager access required.');
+   if(l.referral_status!=='approved')return fail(409,'Approve referral first.');
+   const cur=await db.prepare('SELECT * FROM crm_lead_profiles WHERE lead_id=?').bind(id).first<Dict>();
+   if(!cur)return fail(503,'Apply CRM migration 0008 first.');
+   const status=str(body.relationship_status,24);
+   if(!['lead','active_client','on_hold','completed','lost','closed'].includes(status))return fail(400,'Invalid relationship status.');
+   const reason=str(body.closed_reason,350);
+   if(['lost','closed'].includes(status)&&reason.length<5)return fail(400,'A closure or loss reason is required.');
+   if(status==='active_client'&&l.referral_status!=='approved')return fail(409,'Client conversion requires approved referral.');
+   const educational={education_level:str(body.education_level,100),study_subject:str(body.study_subject,120),target_intake:str(body.target_intake,60),budget_band:str(body.budget_band,80),preferred_contact:str(body.preferred_contact,40)};
+   const nowClosed=['lost','closed'].includes(status)?now:null;
+   const legacy=status==='lead'?'lead':['lost','closed'].includes(status)?'archived':'client';
+   await db.batch([
+     db.prepare(`UPDATE crm_lead_profiles SET relationship_status=?,closed_reason=?,closed_at=?,converted_at=CASE WHEN ?='active_client' AND converted_at IS NULL THEN ? ELSE converted_at END,education_level=?,study_subject=?,target_intake=?,budget_band=?,preferred_contact=?,last_reviewed_by=?,updated_at=? WHERE lead_id=?`)
+       .bind(status,['lost','closed'].includes(status)?reason:'',nowClosed,status,now,educational.education_level,educational.study_subject,educational.target_intake,educational.budget_band,educational.preferred_contact,a.id,now,id),
+     db.prepare('UPDATE crm_leads SET client_status=?,updated_at=? WHERE id=?').bind(legacy,now,id),
+     db.prepare('INSERT INTO crm_lead_history(id,lead_id,action,old_value,new_value,note,actor_type,actor_id,created_at) VALUES(?,?,?,?,?,?,?,?,?)')
+       .bind(uuid(),id,'relationship_change',JSON.stringify(cur),JSON.stringify({relationship_status:status,reason,...educational}),reason,a.kind,a.id,now)
+   ]);
+   return success({success:true});
+ }
+ if(path==='/api/crm/applications'&&verb==='POST'){
+   const id=str(body.lead_id,80),l=await db.prepare('SELECT * FROM crm_leads WHERE id=?').bind(id).first<Dict>();
+   if(!l)return fail(404,'Lead not found.');
+   if(!(await canManageLead(db,a,l)))return fail(403,'Manager permission required.');
+   const lifecycle=await db.prepare('SELECT relationship_status FROM crm_lead_profiles WHERE lead_id=?').bind(id).first<{relationship_status:string}>();
+   if(l.referral_status!=='approved'||lifecycle?.relationship_status!=='active_client')return fail(409,'Only an active, approved client can open a new application.');
+   const country=str(body.destination_country,80),institution=str(body.institution,160),programme=str(body.programme,160),intake=str(body.intake,70);
+   if(country.length<2)return fail(400,'Choose a destination country.');
+   const appId=uuid();
+   await db.batch([
+     db.prepare('INSERT INTO crm_applications(id,lead_id,destination_country,institution,programme,intake,created_by,updated_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)')
+       .bind(appId,id,country,institution,programme,intake,a.id,a.id,now,now),
+     db.prepare('INSERT INTO crm_application_history(id,application_id,action,previous_status,next_status,note,actor_id,created_at) VALUES(?,?,?,?,?,?,?,?)')
+       .bind(uuid(),appId,'created',null,'researching / not_started','Application opened',a.id,now)
+   ]);
+   return success({success:true,id:appId});
+ }
+ if(path==='/api/crm/applications'&&verb==='PUT'){
+   const id=str(body.id,80),old=await db.prepare('SELECT * FROM crm_applications WHERE id=?').bind(id).first<Dict>();
+   if(!old)return fail(404,'Application not found.');
+   const l=await db.prepare('SELECT * FROM crm_leads WHERE id=?').bind(old.lead_id).first<Dict>();
+   if(!l||!(await canManageLead(db,a,l)))return fail(403,'Manager permission required.');
+   const applicationStatus=str(body.application_status,36),visaStatus=str(body.visa_status,36);
+   const appOptions=['researching','preparing','submitted','under_review','conditional_offer','unconditional_offer','accepted','rejected','withdrawn'];
+   const visaOptions=['not_started','documents_preparing','lodged','biometrics_pending','appointment_waiting','decision_pending','approved','refused','withdrawn','not_applicable'];
+   if(!appOptions.includes(applicationStatus)||!visaOptions.includes(visaStatus))return fail(400,'Invalid admission or visa stage.');
+   const note=str(body.outcome_note,1500);
+   if(['rejected'].includes(applicationStatus)&&note.length<5)return fail(400,'Record the rejection reason.');
+   if(['refused'].includes(visaStatus)&&note.length<5)return fail(400,'Record the visa refusal outcome.');
+   await db.batch([
+     db.prepare('UPDATE crm_applications SET application_status=?,visa_status=?,outcome_note=?,updated_by=?,updated_at=? WHERE id=?')
+       .bind(applicationStatus,visaStatus,note,a.id,now,id),
+     db.prepare('INSERT INTO crm_application_history(id,application_id,action,previous_status,next_status,note,actor_id,created_at) VALUES(?,?,?,?,?,?,?,?)')
+       .bind(uuid(),id,'stage_changed',String(old.application_status)+' / '+String(old.visa_status),applicationStatus+' / '+visaStatus,note,a.id,now)
+   ]);
+   return success({success:true});
+ }
+
  if(path==='/api/crm/state'&&verb==='GET'){
    const rights=await delegated(db,a);
    let leads:Dict[]=[];
@@ -125,14 +290,23 @@ export async function handleCrmRequest(method:string,rawPath:string,body:Dict,ct
    else if(a.kind==='office'){
      leads=await rowList(db,`SELECT DISTINCT l.* FROM crm_leads l LEFT JOIN users o ON o.id=l.assigned_to_user_id
        WHERE (l.referrer_type='office' AND l.referrer_id=?)
-       OR l.assigned_to_user_id=? OR (?='team_manager' AND o.team=?) OR (?='team_manager' AND l.assigned_to_user_id IS NULL AND l.referral_status='pending') ORDER BY l.updated_at DESC LIMIT 350`,a.id,a.id,a.role,a.team||'',a.role);
+       OR l.assigned_to_user_id=? OR (?='team_manager' AND o.team=?) OR (?='team_manager' AND l.assigned_to_user_id IS NULL AND l.referral_status='pending' AND l.referrer_type='office' AND EXISTS (SELECT 1 FROM users r WHERE r.id=l.referrer_id AND r.team=?)) ORDER BY l.updated_at DESC LIMIT 350`,a.id,a.id,a.role,a.team||'',a.role,a.team||'');
      // A regular employee can view referral progress but not internal counselling notes.
      if(!admin(a)&&a.role==='employee'&&!(await delegated(db,a)).leads)
        leads=leads.map(l=>({...l,notes:null}));
    }else leads=await rowList(db,`SELECT id,full_name,phone,email,address,preferred_countries,referrer_type,referrer_id,
       referrer_display,referral_status,stage,client_status,last_contacted_at,next_followup_at,created_at,updated_at
       FROM crm_leads WHERE referrer_type=? AND referrer_id=? ORDER BY updated_at DESC LIMIT 200`,a.kind,a.id);
-   const ids=leads.map(x=>String(x.id));
+   let ids=leads.map(x=>String(x.id));
+   // Referring someone does not automatically grant access to internal counselling notes.
+   if(a.kind==='office'&&!admin(a)){
+     const scoped=scopeWhere(a,true);
+     const managed=await rowList(db,`SELECT l.id FROM crm_leads l LEFT JOIN users o ON o.id=l.assigned_to_user_id WHERE ${scoped.where} ORDER BY l.updated_at DESC LIMIT 1000`,...scoped.args);
+     const permitted=new Set(managed.map(r=>String(r.id)));
+     ids=ids.filter(id=>permitted.has(id));
+     // A referring team manager may see progress, not sensitive notes from another team's case.
+     leads=leads.map(l=>permitted.has(String(l.id))?l:{...l,notes:null,address:null,email:null});
+   }
    let followups:Dict[]=[],history:Dict[]=[];
    if(a.kind==='office'&&(admin(a)||rights.leads)&&ids.length){const placeholders=ids.map(()=>'?').join(',');
      followups=await rowList(db,`SELECT * FROM crm_lead_followups WHERE lead_id IN (${placeholders}) ORDER BY contacted_at DESC LIMIT 700`,...ids);
@@ -229,6 +403,7 @@ export async function handleCrmRequest(method:string,rawPath:string,body:Dict,ct
       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'New','lead',?,?,?)`)
      .bind(id,name,phone,normalizePhone(phone),email||null,str(body.address,500)||null,countries,refType,refId,refDisplay,str(body.external_reference_note,500),a.kind,a.id,now,assigned,str(body.notes,3000),now,now).run();}
    catch {return fail(409,'Lead could not be registered, possibly because the phone already exists.');}
+   await db.prepare("INSERT OR IGNORE INTO crm_lead_profiles(lead_id,relationship_status,updated_at) VALUES(?,'lead',?)").bind(id,now).run();
    await trail(db,id,a,'created',undefined,{referrer_type:refType,referrer_id:refId,referrer_display:refDisplay});
    return success({success:true,id});
  }
@@ -251,6 +426,7 @@ export async function handleCrmRequest(method:string,rawPath:string,body:Dict,ct
    if(lead.referral_status!=='approved')return fail(409,'Approve the referral before progressing the lead.');
    const stage=str(body.stage,70)||String(lead.stage),clientStatus=str(body.client_status,15)||String(lead.client_status);
    if(!stages.includes(stage)||!['lead','client','archived'].includes(clientStatus))return fail(400,'Invalid stage or client state.');
+   if(clientStatus!==lead.client_status)return fail(400,'Change client relationship through the audited relationship form.');
    const newOwner=body.assigned_to_user_id===undefined?lead.assigned_to_user_id:(str(body.assigned_to_user_id,80)||null);
    if(newOwner){const target=await db.prepare('SELECT id,team FROM users WHERE id=? AND status=\'active\'').bind(newOwner).first<{id:string;team:string}>();
      if(!target)return fail(400,'Assigned employee not found.');
@@ -264,6 +440,11 @@ export async function handleCrmRequest(method:string,rawPath:string,body:Dict,ct
    try {await db.prepare(`UPDATE crm_leads SET full_name=?,phone=?,phone_normalized=?,email=?,address=?,preferred_countries=?,stage=?,client_status=?,assigned_to_user_id=?,notes=?,next_followup_at=?,updated_at=? WHERE id=?`)
      .bind(updated.full_name,updated.phone,normalizePhone(String(updated.phone)),updated.email,updated.address,updated.preferred_countries,stage,clientStatus,newOwner,updated.notes,updated.next_followup_at,now,id).run();}
    catch{return fail(409,'Another lead uses that phone number.');}
+   if(clientStatus!==lead.client_status){
+     const profile=await db.prepare('SELECT relationship_status FROM crm_lead_profiles WHERE lead_id=?').bind(id).first<{relationship_status:string}>();
+     const nextStatus=clientStatus==='archived'?'closed':clientStatus==='lead'?'lead':'active_client';
+     if(profile)await db.prepare('UPDATE crm_lead_profiles SET relationship_status=?,updated_at=?,last_reviewed_by=? WHERE lead_id=?').bind(nextStatus,now,a.id,id).run();
+   }
    await trail(db,id,a,'updated',{stage:lead.stage,client_status:lead.client_status,assigned_to_user_id:lead.assigned_to_user_id},
      {stage,client_status:clientStatus,assigned_to_user_id:newOwner},str(body.change_reason,500));
    return success({success:true});
